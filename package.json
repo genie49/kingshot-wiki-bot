@@ -1,0 +1,15 @@
+{
+  "name": "kingshot-wiki-bot",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "typecheck": "npm --workspace apps/api run typecheck && npm --workspace apps/web run typecheck"
+  },
+  "overrides": {
+    "@langchain/core": "^1.1.44"
+  }
+}
