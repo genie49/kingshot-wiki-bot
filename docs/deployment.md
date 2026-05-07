@@ -20,26 +20,26 @@ npm run setup:checkpointer
 
 This creates the checkpoint tables used by LangGraphJS `PostgresSaver`.
 
-## Vercel
+## Railway
 
-Create two Vercel projects from the same GitHub repository.
+Create two Railway services from the same GitHub repository.
 
 ### API project
 
-The Hono API is serverless-ready and split into:
+The Hono API runs as a long-running Node process on Railway. The API is split into:
 
 - `apps/api/src/app.ts`: the Hono app and routes.
-- `apps/api/src/index.ts`: serverless entrypoint that default-exports the Hono app.
-- `apps/api/src/server.ts`: local/long-running Node entrypoint.
+- `apps/api/src/server.ts`: Node server entrypoint for Railway and local smoke tests.
+- `apps/api/src/index.ts`: Hono app export, kept for portability.
 
 Project settings:
 
-- Framework preset: `Hono`
 - Root directory: `apps/api`
 - Build command: `npm run build`
+- Start command: `npm run start`
 
-Vercel detects `src/index.ts` and turns the Hono routes into Vercel Functions.
-Vercel Functions support streaming, so `/query/stream` can stream chat deltas.
+Railway provides `PORT`; the API binds to `0.0.0.0` and reads that port from env.
+The `/query/stream` endpoint streams SSE chat deltas from the Node process.
 
 API environment variables:
 
@@ -62,14 +62,13 @@ API environment variables:
 
 Project settings:
 
-- Framework preset: `Vite`
 - Root directory: `apps/web`
 - Build command: `npm run build`
-- Output directory: `dist`
+- Start command: `npm run start`
 
 Web environment variables:
 
-- `VITE_API_BASE_URL`: the deployed Hono API URL
+- `VITE_API_BASE_URL`: the deployed Railway API URL
 
 Do not add Supabase or GCS browser keys to the web project. All reads, writes,
 and uploads should go through the Hono API.
