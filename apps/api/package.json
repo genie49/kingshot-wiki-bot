@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file=.env src/index.ts",
-    "start": "node --env-file=.env dist/index.js",
+    "dev": "tsx watch --env-file=.env src/server.ts",
+    "start": "node dist/server.js",
+    "start:local": "node --env-file=.env dist/server.js",
     "build": "tsc -p tsconfig.json",
     "setup:checkpointer": "tsx --env-file=.env src/scripts/setupCheckpointer.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
