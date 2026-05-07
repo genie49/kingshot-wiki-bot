@@ -20,26 +20,30 @@ npm run setup:checkpointer
 
 This creates the checkpoint tables used by LangGraphJS `PostgresSaver`.
 
-## Railway
+## Vercel
 
-Create two services.
+Create two Vercel projects from the same GitHub repository.
 
-API service:
+### API project
 
+The Hono API is serverless-ready and split into:
+
+- `apps/api/src/app.ts`: the Hono app and routes.
+- `apps/api/src/index.ts`: serverless entrypoint that default-exports the Hono app.
+- `apps/api/src/server.ts`: local/long-running Node entrypoint.
+
+Project settings:
+
+- Framework preset: `Hono`
 - Root directory: `apps/api`
-- Build command: `npm install && npm run build`
-- Start command: `npm run start`
+- Build command: `npm run build`
 
-Web service:
+Vercel detects `src/index.ts` and turns the Hono routes into Vercel Functions.
+Vercel Functions support streaming, so `/query/stream` can stream chat deltas.
 
-- Root directory: `apps/web`
-- Build command: `npm install && npm run build`
-- Start command: `npm run preview`
+API environment variables:
 
-API variables:
-
-- `PORT`
-- `CORS_ORIGIN`
+- `CORS_ORIGIN`: the deployed web app URL
 - `SUPABASE_URL`
 - `SUPABASE_API_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
@@ -52,9 +56,28 @@ API variables:
 - `GEMINI_GENERATION_MODEL`
 - `GEMINI_EMBEDDING_MODEL`
 - `GEMINI_EMBEDDING_DIMENSIONS`
+- `RAG_MIN_SIMILARITY`
 
-Web variables:
+### Web project
 
-- `VITE_API_BASE_URL`
+Project settings:
 
-Do not add Supabase or GCS browser keys to the web service. All reads, writes, and uploads should go through the Hono API.
+- Framework preset: `Vite`
+- Root directory: `apps/web`
+- Build command: `npm run build`
+- Output directory: `dist`
+
+Web environment variables:
+
+- `VITE_API_BASE_URL`: the deployed Hono API URL
+
+Do not add Supabase or GCS browser keys to the web project. All reads, writes,
+and uploads should go through the Hono API.
+
+### Local API smoke test
+
+If you need to run the API as a long-running Node process locally:
+
+```bash
+npm --workspace apps/api run start:local
+```
