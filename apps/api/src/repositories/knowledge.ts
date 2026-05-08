@@ -33,6 +33,9 @@ type CreateKnowledgeChunkInput = {
 type ListKnowledgeItemsOptions = {
   status?: string;
   limit?: number;
+  offset?: number;
+  query?: string;
+  categoryId?: string;
 };
 
 type UpdateKnowledgeItemInput = {
@@ -149,6 +152,9 @@ export class KnowledgeRepository {
   }
 
   async listKnowledgeItems(options: ListKnowledgeItemsOptions = {}) {
+    const limit = options.limit ?? 50;
+    const offset = options.offset ?? 0;
+    const queryText = options.query?.trim().replace(/[%,()]/g, " ");
     let query = this.db
       .from("knowledge_items")
       .select(`
@@ -164,17 +170,28 @@ export class KnowledgeRepository {
         updated_at,
         category:categories(id, slug, name),
         assets:knowledge_assets(id, gcs_url, mime_type, sort_order)
-      `)
+      `, { count: "exact" })
       .order("created_at", { ascending: false })
-      .limit(options.limit ?? 50);
+      .range(offset, offset + limit - 1);
 
     if (options.status) {
       query = query.eq("status", options.status);
     }
+    if (options.categoryId) {
+      query = query.eq("category_id", options.categoryId);
+    }
+    if (queryText) {
+      query = query.or(`title.ilike.%${queryText}%,summary.ilike.%${queryText}%,body.ilike.%${queryText}%`);
+    }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw error;
-    return data ?? [];
+    return {
+      items: data ?? [],
+      total: count ?? 0,
+      limit,
+      offset
+    };
   }
 
   async getKnowledgeItem(id: string) {

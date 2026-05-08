@@ -44,7 +44,7 @@ API environment variables:
 - `GEMINI_GENERATION_MODEL`
 - `GEMINI_EMBEDDING_MODEL`
 - `GEMINI_EMBEDDING_DIMENSIONS`
-- `RAG_MIN_SIMILARITY`
+- `RAG_MIN_SIMILARITY`: recommended `0.55` for the current Kingshot corpus
 
 ### Web project
 

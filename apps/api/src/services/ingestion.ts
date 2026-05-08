@@ -134,17 +134,10 @@ export async function ingestKnowledge(input: IngestRequest) {
   const chunks = await repository.createKnowledgeChunks([
     {
       knowledgeItemId: item.id,
-      chunkText: summary,
-      chunkType: "summary",
-      embedding,
-      metadata: { source: "summary" }
-    },
-    {
-      knowledgeItemId: item.id,
-      chunkText: input.body,
+      chunkText: [title, summary, input.body].join("\n\n"),
       chunkType: "body",
       embedding,
-      metadata: { source: "body" }
+      metadata: { source: "knowledge_item" }
     }
   ]);
 

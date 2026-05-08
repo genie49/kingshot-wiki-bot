@@ -74,7 +74,7 @@ Core entities:
 - `knowledge_assets`
 - `knowledge_chunks`
 
-Use `knowledge_chunks.embedding vector(1536)` by default so Supabase `pgvector` can use an `ivfflat` index. Gemini Embedding 2 can support larger dimensions, but `ivfflat` cannot index vectors above 2000 dimensions. Keep the schema and embedding client output dimension aligned.
+Use `knowledge_chunks.embedding vector(1536)` by default so Supabase `pgvector` can index it with HNSW cosine search. Gemini Embedding 2 can support larger dimensions, but keep the schema and embedding client output dimension aligned.
 
 ## Deployment Notes
 
