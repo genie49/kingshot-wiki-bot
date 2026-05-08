@@ -113,6 +113,43 @@ function createQueryAgent(context: QueryRunContext) {
     }
   );
 
+  const redditSearch = tool(
+    async ({ query, subreddit, sort }) => {
+      const ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15";
+      const sub = subreddit || "Kingshot";
+      const sortParam = sort || "relevance";
+      const url = `https://www.reddit.com/r/${sub}/search.json?q=${encodeURIComponent(query)}&restrict_sr=1&sort=${sortParam}&limit=10`;
+      const res = await fetch(url, { headers: { "User-Agent": ua } });
+      if (!res.ok) return JSON.stringify({ error: `Reddit API returned ${res.status}` });
+      const body = await res.json() as { data?: { children?: { data: { title: string; author: string; score: number; selftext: string; num_comments: number; permalink: string; created_utc: number } }[] } };
+      const posts = (body.data?.children ?? []).map((child) => {
+        const d = child.data;
+        return {
+          title: d.title,
+          author: d.author,
+          score: d.score,
+          comments: d.num_comments,
+          snippet: d.selftext?.slice(0, 300) ?? "",
+          url: `https://www.reddit.com${d.permalink}`,
+          created: new Date(d.created_utc * 1000).toISOString()
+        };
+      });
+      return JSON.stringify(posts);
+    },
+    {
+      name: "reddit_search",
+      description:
+        "Search Reddit posts in a subreddit. Returns post titles, scores, comment counts, text snippets, and URLs. " +
+        "Use when the user asks about community opinions, discussions, guides, or tips from Reddit. " +
+        "Defaults to r/Kingshot sorted by relevance.",
+      schema: z.object({
+        query: z.string().describe("Search query for Reddit posts."),
+        subreddit: z.string().optional().describe("Subreddit name without r/. Defaults to Kingshot."),
+        sort: z.enum(["relevance", "hot", "top", "new", "comments"]).optional().describe("Sort order. Defaults to relevance.")
+      })
+    }
+  );
+
   const glossaryTranslate = tool(
     async ({ query, matchCount }) => {
       const repository = new GlossaryRepository(createSupabaseServiceClient());
@@ -146,7 +183,7 @@ function createQueryAgent(context: QueryRunContext) {
 
   return createAgent({
     model: createChatModel(),
-    tools: [glossaryTranslate, semanticSearch, listCategories],
+    tools: [glossaryTranslate, semanticSearch, listCategories, redditSearch],
     systemPrompt:
       "You are an agentic RAG assistant for Korean Kingshot(킹샷) game knowledge. " +
       "The knowledge base mixes Korean and English chunks, and the embedding model often fails to bridge the two. " +
@@ -158,6 +195,7 @@ function createQueryAgent(context: QueryRunContext) {
       "When you do search, inspect returned similarity scores, summaries, and chunk text. " +
       "If search results are empty, low-confidence, or not well aligned with the user's intent, rewrite the query (try the other language, broader terms, or category names) and call semantic_search again. " +
       "Try up to three focused query variants when needed. " +
+      "When the knowledge base does not have enough information, or the user explicitly asks about community discussions, opinions, or Reddit content, use reddit_search to find relevant Reddit posts. " +
       "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient or no relevant results are found after all attempts, respond exactly: '검색 결과에서 해당 정보를 찾을 수 없습니다.' and briefly suggest the user try different keywords. " +
       "Never rename Kingshot to another game title. Return concise Korean answers. Do not paste image URLs."
   });
