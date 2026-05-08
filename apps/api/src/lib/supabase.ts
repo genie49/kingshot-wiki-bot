@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 import { config, requireConfig } from "../config.js";
 
 function getSupabaseApiKey() {
@@ -17,6 +18,9 @@ export function createSupabaseServiceClient() {
       auth: {
         autoRefreshToken: false,
         persistSession: false
+      },
+      realtime: {
+        transport: ws as never
       }
     }
   );
