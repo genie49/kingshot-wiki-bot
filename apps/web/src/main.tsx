@@ -190,6 +190,15 @@ function App() {
     return { events, rest };
   }
 
+  function toQueryMessages(messages: ChatMessage[]) {
+    return messages
+      .filter((message) => message.content.trim().length > 0)
+      .map((message) => ({
+        role: message.role,
+        content: message.content
+      }));
+  }
+
   async function submitQuestion() {
     const trimmedQuestion = question.trim();
     if (!trimmedQuestion) return;
@@ -209,6 +218,7 @@ function App() {
       images: [],
       streaming: true
     };
+    const nextQueryMessages = toQueryMessages([...chatMessages, userMessage]);
     setChatMessages((current) => [...current, userMessage, assistantMessage]);
     setQuestion("");
 
@@ -216,7 +226,10 @@ function App() {
       const response = await fetch(`${apiBaseUrl}/query/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: trimmedQuestion })
+        body: JSON.stringify({
+          question: trimmedQuestion,
+          messages: nextQueryMessages
+        })
       });
       if (!response.ok || !response.body) {
         const text = await response.text();

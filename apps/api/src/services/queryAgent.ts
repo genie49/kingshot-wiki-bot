@@ -6,6 +6,11 @@ import { createChatModel, createEmbeddingModel, normalizeEmbeddingDimensions } f
 import { createSupabaseServiceClient } from "../lib/supabase.js";
 import { KnowledgeRepository } from "../repositories/knowledge.js";
 
+export type QueryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 const semanticSearch = tool(
   async ({ query, matchCount }) => {
     const repository = new KnowledgeRepository(createSupabaseServiceClient());
@@ -101,7 +106,27 @@ function extractAnswer(result: Awaited<ReturnType<ReturnType<typeof createAgent>
   return "";
 }
 
-function buildRagPrompt(question: string, matches: Awaited<ReturnType<KnowledgeRepository["semanticSearch"]>>) {
+function normalizeHistory(question: string, messages: QueryMessage[] = []) {
+  const cleaned = messages
+    .map((message) => ({
+      role: message.role,
+      content: message.content.trim()
+    }))
+    .filter((message) => message.content.length > 0);
+  const lastMessage = cleaned.at(-1);
+
+  if (lastMessage?.role === "user" && lastMessage.content === question.trim()) {
+    return cleaned.slice(0, -1);
+  }
+
+  return cleaned;
+}
+
+function buildRagPrompt(
+  question: string,
+  matches: Awaited<ReturnType<KnowledgeRepository["semanticSearch"]>>,
+  messages: QueryMessage[] = []
+) {
   const context = matches.length
     ? matches
         .map(
@@ -110,6 +135,8 @@ function buildRagPrompt(question: string, matches: Awaited<ReturnType<KnowledgeR
         )
         .join("\n\n")
     : "검색 기준을 넘는 지식이 없습니다.";
+
+  const history = normalizeHistory(question, messages);
 
   return [
     {
@@ -120,6 +147,7 @@ function buildRagPrompt(question: string, matches: Awaited<ReturnType<KnowledgeR
         "If the retrieved knowledge is missing details, say that clearly. " +
         "Return concise Korean answers. Do not paste image URLs."
     },
+    ...history,
     {
       role: "user" as const,
       content: `질문:\n${question}\n\n검색된 지식:\n${context}`
@@ -127,7 +155,7 @@ function buildRagPrompt(question: string, matches: Awaited<ReturnType<KnowledgeR
   ];
 }
 
-export async function answerQuestion(question: string) {
+export async function answerQuestion(question: string, messages: QueryMessage[] = []) {
   const repository = new KnowledgeRepository(createSupabaseServiceClient());
   const embeddings = createEmbeddingModel();
   const queryEmbedding = normalizeEmbeddingDimensions(await embeddings.embedQuery(question));
@@ -150,9 +178,7 @@ export async function answerQuestion(question: string) {
     similarity: match.similarity
   }));
   const assets = await repository.getAssetsForItems(sources.map((source) => source.id));
-  const result = await getQueryAgent().invoke({
-    messages: [{ role: "user", content: question }]
-  });
+  const result = await getQueryAgent().invoke({ messages: [...normalizeHistory(question, messages), { role: "user", content: question }] });
 
   return {
     answer: extractAnswer(result),
@@ -175,7 +201,11 @@ export type QueryStreamEvent =
   | { type: "text"; delta: string }
   | { type: "done" };
 
-export async function* streamAnswerQuestion(question: string, signal?: AbortSignal): AsyncGenerator<QueryStreamEvent> {
+export async function* streamAnswerQuestion(
+  question: string,
+  messages: QueryMessage[] = [],
+  signal?: AbortSignal
+): AsyncGenerator<QueryStreamEvent> {
   const repository = new KnowledgeRepository(createSupabaseServiceClient());
   const embeddings = createEmbeddingModel();
   const queryEmbedding = normalizeEmbeddingDimensions(await embeddings.embedQuery(question));
@@ -207,7 +237,7 @@ export async function* streamAnswerQuestion(question: string, signal?: AbortSign
 
   yield { type: "metadata", sources, images };
 
-  const stream = await createChatModel().stream(buildRagPrompt(question, matches), { signal });
+  const stream = await createChatModel().stream(buildRagPrompt(question, matches, messages), { signal });
   for await (const chunk of stream) {
     const text = stringifyContent(chunk.content);
     if (text) {

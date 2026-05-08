@@ -6,7 +6,6 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_API_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
-  POSTGRES_CHECKPOINT_URL: z.string().optional(),
   GCS_BUCKET: z.string().optional(),
   GOOGLE_CLOUD_PROJECT: z.string().optional(),
   GOOGLE_APPLICATION_CREDENTIALS_JSON: z.string().optional(),

@@ -29,14 +29,14 @@ Categories are fixed at first to avoid taxonomy drift. The LLM may suggest missi
 
 ## Query Gate
 
-The query API uses a LangChainJS `createAgent` with narrow tools:
+The query API receives the full current chat transcript from the web app on every request. The server does not persist chat history or use a checkpointer; the browser owns the active conversation state.
+
+The non-streaming query API uses a LangChainJS `createAgent` with narrow tools:
 
 - `semantic_search`: vector search over knowledge chunks.
 - `get_knowledge_item`: fetch full item details.
 - `get_related_images`: fetch related GCS image URLs.
 - `list_categories`: help with scoped questions.
-
-Short-term graph or agent state should use LangGraphJS `PostgresSaver` backed by the same Supabase Postgres instance. The API expects a direct connection string in `POSTGRES_CHECKPOINT_URL`, creates the saver with `PostgresSaver.fromConnString(...)`, and runs `checkpointer.setup()` once during deployment or startup.
 
 The final response returns:
 
@@ -84,7 +84,6 @@ Recommended Railway variables:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `POSTGRES_CHECKPOINT_URL`
 - `GCS_BUCKET`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
