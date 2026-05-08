@@ -79,7 +79,7 @@ async function enrichKnowledge(body: string, categories: Category[], assetCount:
     const categoryExists = categories.some((category) => category.slug === parsed.categorySlug);
     return categoryExists ? parsed : { ...parsed, categorySlug: fallback.categorySlug, confidence: 0.2 };
   } catch (error) {
-    console.warn("OpenRouter enrichment failed; using heuristic fallback.", error);
+    console.warn("Gemini enrichment failed; using heuristic fallback.", error);
     return fallback;
   }
 }

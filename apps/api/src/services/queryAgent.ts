@@ -158,7 +158,7 @@ function createQueryAgent(context: QueryRunContext) {
       "When you do search, inspect returned similarity scores, summaries, and chunk text. " +
       "If search results are empty, low-confidence, or not well aligned with the user's intent, rewrite the query (try the other language, broader terms, or category names) and call semantic_search again. " +
       "Try up to three focused query variants when needed. " +
-      "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient, say what is missing clearly. " +
+      "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient or no relevant results are found after all attempts, respond exactly: '검색 결과에서 해당 정보를 찾을 수 없습니다.' and briefly suggest the user try different keywords. " +
       "Never rename Kingshot to another game title. Return concise Korean answers. Do not paste image URLs."
   });
 }

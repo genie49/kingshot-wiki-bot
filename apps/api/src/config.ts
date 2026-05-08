@@ -11,13 +11,9 @@ const envSchema = z.object({
   GOOGLE_APPLICATION_CREDENTIALS_JSON: z.string().optional(),
   GCS_PUBLIC_BASE_URL: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  GEMINI_GENERATION_MODEL: z.string().default("gemini-3-flash-preview"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
   GEMINI_EMBEDDING_DIMENSIONS: z.coerce.number().default(1536),
-  OPENROUTER_API_KEY: z.string().optional(),
-  OPENROUTER_BASE_URL: z.string().default("https://openrouter.ai/api/v1"),
-  OPENROUTER_GENERATION_MODEL: z.string().default("deepseek/deepseek-v4-pro"),
-  OPENROUTER_HTTP_REFERER: z.string().default("https://kingshot-wiki-bot.local"),
-  OPENROUTER_APP_TITLE: z.string().default("Kingshot Wiki Bot"),
   RAG_MIN_SIMILARITY: z.coerce.number().default(0.55)
 });
 
