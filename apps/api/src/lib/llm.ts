@@ -1,11 +1,19 @@
-import { GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatOpenAI } from "@langchain/openai";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { config, requireConfig } from "../config.js";
 
 export function createChatModel() {
-  return new ChatGoogleGenerativeAI({
-    apiKey: requireConfig("GEMINI_API_KEY"),
-    model: config.GEMINI_GENERATION_MODEL,
-    temperature: 0.2
+  return new ChatOpenAI({
+    apiKey: requireConfig("OPENROUTER_API_KEY"),
+    model: config.OPENROUTER_GENERATION_MODEL,
+    temperature: 0.2,
+    configuration: {
+      baseURL: config.OPENROUTER_BASE_URL,
+      defaultHeaders: {
+        "HTTP-Referer": config.OPENROUTER_HTTP_REFERER,
+        "X-Title": config.OPENROUTER_APP_TITLE
+      }
+    }
   });
 }
 

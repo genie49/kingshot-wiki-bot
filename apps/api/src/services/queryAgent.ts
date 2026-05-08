@@ -2,8 +2,9 @@ import { tool } from "@langchain/core/tools";
 import { createAgent } from "langchain";
 import { z } from "zod";
 import { config } from "../config.js";
-import { createChatModel, createEmbeddingModel, normalizeEmbeddingDimensions } from "../lib/gemini.js";
+import { createChatModel, createEmbeddingModel, normalizeEmbeddingDimensions } from "../lib/llm.js";
 import { createSupabaseServiceClient } from "../lib/supabase.js";
+import { GlossaryRepository } from "../repositories/glossary.js";
 import { KnowledgeRepository } from "../repositories/knowledge.js";
 
 export type QueryMessage = {
@@ -112,17 +113,51 @@ function createQueryAgent(context: QueryRunContext) {
     }
   );
 
+  const glossaryTranslate = tool(
+    async ({ query, matchCount }) => {
+      const repository = new GlossaryRepository(createSupabaseServiceClient());
+      const embeddings = createEmbeddingModel();
+      const queryEmbedding = normalizeEmbeddingDimensions(await embeddings.embedQuery(query));
+      const matches = await repository.searchSimilar(queryEmbedding, matchCount);
+      return JSON.stringify(
+        matches.map((match) => ({
+          ko: match.canonical_ko,
+          en: match.canonical_en,
+          category: match.category,
+          similarity: match.similarity
+        }))
+      );
+    },
+    {
+      name: "glossary_translate",
+      description:
+        "Look up canonical Korean↔English Kingshot terminology (hero names, building names, troop types, stat labels, in-game resources, UI terms). " +
+        "Call this BEFORE semantic_search whenever the user mentions a Kingshot game-specific noun or jargon, in either language. " +
+        "Use the returned `ko` and `en` strings together as keywords in the next semantic_search call so retrieval reaches both Korean and English knowledge chunks. " +
+        "Returns an array of {ko, en, category, similarity} sorted by relevance.",
+      schema: z.object({
+        query: z
+          .string()
+          .describe("A short phrase or single term you want to translate or normalize. Use the user's wording."),
+        matchCount: z.number().int().min(1).max(15).default(6)
+      })
+    }
+  );
+
   return createAgent({
     model: createChatModel(),
-    tools: [semanticSearch, listCategories],
+    tools: [glossaryTranslate, semanticSearch, listCategories],
     systemPrompt:
       "You are an agentic RAG assistant for Korean Kingshot(킹샷) game knowledge. " +
+      "The knowledge base mixes Korean and English chunks, and the embedding model often fails to bridge the two. " +
+      "When the user mentions a Kingshot game-specific noun (hero, building, troop type, stat, resource, event, etc.) in either language, FIRST call glossary_translate with that term to fetch the canonical Korean↔English pair, then call semantic_search with a query that contains BOTH the Korean and English forms (and any close aliases the glossary returned). " +
+      "Skip glossary_translate only when the user is plainly asking about generic concepts that have no Kingshot-specific term. " +
       "Use semantic_search only when the user asks for new Kingshot game knowledge, facts, strategy, data, or verification that is not already present in the conversation. " +
       "Do not search for greetings, small talk, app/help/meta questions, or requests to summarize, reorganize, shorten, translate, rephrase, or format information that is already present in the chat history. " +
       "When the needed answer is already in prior conversation messages, answer from that chat history without calling tools. " +
       "When you do search, inspect returned similarity scores, summaries, and chunk text. " +
-      "If search results are empty, low-confidence, or not well aligned with the user's intent, rewrite the query and call semantic_search again. " +
-      "Try up to three focused query variants when needed, including Korean synonyms, English game terms, category names, and narrower concepts. " +
+      "If search results are empty, low-confidence, or not well aligned with the user's intent, rewrite the query (try the other language, broader terms, or category names) and call semantic_search again. " +
+      "Try up to three focused query variants when needed. " +
       "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient, say what is missing clearly. " +
       "Never rename Kingshot to another game title. Return concise Korean answers. Do not paste image URLs."
   });

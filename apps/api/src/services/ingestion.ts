@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createChatModel, createEmbeddingModel, normalizeEmbeddingDimensions } from "../lib/gemini.js";
+import { createChatModel, createEmbeddingModel, normalizeEmbeddingDimensions } from "../lib/llm.js";
 import { createSupabaseServiceClient } from "../lib/supabase.js";
 import { KnowledgeRepository } from "../repositories/knowledge.js";
 import type { Category } from "../types.js";
@@ -79,7 +79,7 @@ async function enrichKnowledge(body: string, categories: Category[], assetCount:
     const categoryExists = categories.some((category) => category.slug === parsed.categorySlug);
     return categoryExists ? parsed : { ...parsed, categorySlug: fallback.categorySlug, confidence: 0.2 };
   } catch (error) {
-    console.warn("Gemini enrichment failed; using heuristic fallback.", error);
+    console.warn("OpenRouter enrichment failed; using heuristic fallback.", error);
     return fallback;
   }
 }
@@ -115,7 +115,7 @@ export async function ingestKnowledge(input: IngestRequest) {
     sourceNote: input.sourceNote,
     status: enrichment.confidence < 0.45 ? "needs_review" : "published",
     metadata: {
-      enrichment: "gemini_structured",
+      enrichment: "openrouter_structured",
       enrichmentConfidence: enrichment.confidence,
       embeddingDimensions: embedding.length,
       selectedCategorySlug: enrichment.categorySlug
@@ -152,6 +152,6 @@ export async function ingestKnowledge(input: IngestRequest) {
     assets,
     chunks,
     embeddingDimensions: embedding.length,
-    note: "Stored through the Hono API with Gemini structured metadata enrichment."
+    note: "Stored through the Hono API with OpenRouter structured metadata enrichment."
   };
 }
