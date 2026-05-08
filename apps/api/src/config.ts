@@ -11,7 +11,7 @@ const envSchema = z.object({
   GOOGLE_APPLICATION_CREDENTIALS_JSON: z.string().optional(),
   GCS_PUBLIC_BASE_URL: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
-  GEMINI_GENERATION_MODEL: z.string().default("gemini-3-flash-preview"),
+  GEMINI_GENERATION_MODEL: z.string().default("gemini-3.1-flash-lite-preview"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
   GEMINI_EMBEDDING_DIMENSIONS: z.coerce.number().default(1536),
   RAG_MIN_SIMILARITY: z.coerce.number().default(0.55)
