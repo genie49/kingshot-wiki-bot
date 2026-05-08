@@ -221,9 +221,9 @@ function createQueryAgent(context: QueryRunContext) {
       "Do not search for greetings, small talk, app/help/meta questions, or requests to summarize, reorganize, shorten, translate, rephrase, or format information that is already present in the chat history. " +
       "When the needed answer is already in prior conversation messages, answer from that chat history without calling tools. " +
       "When you do search, inspect returned similarity scores, summaries, and chunk text. " +
-      "If search results are empty, low-confidence, or not well aligned with the user's intent, rewrite the query (try the other language, broader terms, or category names) and call semantic_search again. " +
-      "Try up to three focused query variants when needed. " +
-      "When the knowledge base does not have enough information, or the user explicitly asks about community discussions, opinions, or Reddit content, use reddit_search to find relevant Reddit posts. " +
+      "If the first semantic_search results are empty, low-confidence, or not well aligned with the user's intent, DO NOT retry semantic_search multiple times. " +
+      "Instead, IMMEDIATELY switch to using reddit_search. Reddit often has much better and more diverse sources for this game. " +
+      "Feel free to use reddit_search multiple times with different query variations (e.g. broader terms, synonyms) to find the best community discussions, opinions, guides, or tips. " +
       "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient or no relevant results are found after all attempts, respond exactly: '검색 결과에서 해당 정보를 찾을 수 없습니다.' and briefly suggest the user try different keywords. " +
       "Never rename Kingshot to another game title. Return concise Korean answers. Do not paste image URLs."
   });
