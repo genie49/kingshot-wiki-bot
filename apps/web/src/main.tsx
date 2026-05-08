@@ -1387,10 +1387,9 @@ function BrowsePanel({
         <div className="browse-table">
           <div className="browse-row head">
             <span>제목</span>
-            <span>출처</span>
             <span>카테고리</span>
             <span>태그</span>
-            <span className="right">첨부</span>
+            <span className="right">출처</span>
           </div>
           <div className="browse-list">
             {items.map((it, index) => (
@@ -1404,7 +1403,6 @@ function BrowsePanel({
                   <strong>{it.title}</strong>
                   <small>{it.summary}</small>
                 </div>
-                <div className="source">{getSourceLabel(it.source_type)}</div>
                 <div className="cat">{it.category?.name ?? "미분류"}</div>
                 <div className="tags">
                   {it.tags.slice(0, 2).map((t) => (
@@ -1416,7 +1414,7 @@ function BrowsePanel({
                     <span className="tags-more">+{it.tags.length - 2}</span>
                   )}
                 </div>
-                <div className="right">{it.assets.length}</div>
+                <div className="right source">{getSourceLabel(it.source_type)}</div>
               </button>
             ))}
           </div>
