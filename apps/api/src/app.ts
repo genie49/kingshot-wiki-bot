@@ -42,11 +42,15 @@ app.get("/categories", async (c) => {
 app.get("/knowledge", async (c) => {
   const status = c.req.query("status");
   const limit = Number(c.req.query("limit") ?? 50);
-  const items = await createKnowledgeRepository().listKnowledgeItems({
+  const offset = Number(c.req.query("offset") ?? 0);
+  const result = await createKnowledgeRepository().listKnowledgeItems({
     status: status || undefined,
-    limit: Number.isFinite(limit) ? limit : 50
+    limit: Number.isFinite(limit) ? limit : 50,
+    offset: Number.isFinite(offset) ? offset : 0,
+    query: c.req.query("q") || undefined,
+    categoryId: c.req.query("categoryId") || undefined
   });
-  return c.json({ items });
+  return c.json(result);
 });
 
 app.get("/knowledge/:id", async (c) => {

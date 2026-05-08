@@ -428,6 +428,8 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
+  max-width: 100%;
   padding: 2px 8px;
   font-family: var(--body);
   font-size: 11px;
@@ -437,6 +439,9 @@ button:disabled {
   background: var(--surface-alt);
   color: var(--ink-soft);
   border: 1px solid var(--line);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .pill-accent {
@@ -971,10 +976,17 @@ button:disabled {
   display: flex;
   flex-wrap: nowrap;
   gap: 4px;
+  min-width: 0;
   overflow: hidden;
 }
 
+.browse-row .tags .pill {
+  flex: 0 1 auto;
+  max-width: 96px;
+}
+
 .browse-row .tags-more {
+  flex: 0 0 auto;
   font-size: 11px;
   color: var(--ink-mute);
 }
@@ -984,6 +996,30 @@ button:disabled {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-soft);
+}
+
+.browse-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.browse-pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.browse-page-indicator {
+  min-width: 52px;
+  text-align: center;
+  color: var(--ink-mute);
 }
 
 .browse-empty {

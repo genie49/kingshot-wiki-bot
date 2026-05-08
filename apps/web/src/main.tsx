@@ -132,6 +132,7 @@ const SUGGESTIONS = [
 ];
 
 const PLACEHOLDER = "킹샷에 대한 질문을 물어보세요";
+const KNOWLEDGE_PAGE_SIZE = 50;
 
 const SOURCE_LABELS: Record<KnowledgeSourceType, string> = {
   ai: "AI",
@@ -237,6 +238,8 @@ function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [browseQuery, setBrowseQuery] = useState("");
   const [browseCategoryId, setBrowseCategoryId] = useState<string>("");
+  const [browsePage, setBrowsePage] = useState(1);
+  const [knowledgeTotal, setKnowledgeTotal] = useState(0);
   const [modalIndex, setModalIndex] = useState<number | null>(null);
 
   // Edit state
@@ -285,18 +288,7 @@ function App() {
     [items, selectedId]
   );
 
-  const filteredItems = useMemo(() => {
-    const q = browseQuery.trim().toLowerCase();
-    return sortNewestFirst(items.filter((it) => {
-      if (browseCategoryId && it.category?.id !== browseCategoryId) return false;
-      if (!q) return true;
-      return (
-        it.title.toLowerCase().includes(q) ||
-        it.summary.toLowerCase().includes(q) ||
-        it.tags.some((tag) => tag.toLowerCase().includes(q))
-      );
-    }));
-  }, [items, browseQuery, browseCategoryId]);
+  const filteredItems = useMemo(() => sortNewestFirst(items), [items]);
 
   const editFilteredItems = useMemo(() => {
     const q = editListQuery.trim().toLowerCase();
@@ -319,8 +311,11 @@ function App() {
   // Initial load
   useEffect(() => {
     void loadCategories();
-    void loadKnowledge();
   }, []);
+
+  useEffect(() => {
+    void loadKnowledge();
+  }, [browsePage, browseQuery, browseCategoryId]);
 
   // Sync tab → URL
   useEffect(() => {
@@ -394,8 +389,17 @@ function App() {
 
   async function loadKnowledge() {
     try {
-      const data = await requestJson<{ items: KnowledgeItem[] }>(`${apiBaseUrl}/knowledge`);
+      const params = new URLSearchParams({
+        limit: String(KNOWLEDGE_PAGE_SIZE),
+        offset: String((browsePage - 1) * KNOWLEDGE_PAGE_SIZE)
+      });
+      if (browseQuery.trim()) params.set("q", browseQuery.trim());
+      if (browseCategoryId) params.set("categoryId", browseCategoryId);
+      const data = await requestJson<{ items: KnowledgeItem[]; total: number }>(
+        `${apiBaseUrl}/knowledge?${params.toString()}`
+      );
       setItems(sortNewestFirst(data.items));
+      setKnowledgeTotal(data.total);
     } catch (event) {
       console.warn("loadKnowledge", event);
     }
@@ -773,7 +777,7 @@ function App() {
     tab === "chat"
       ? "질문하면 인덱싱된 지식에서 답을 만들어드립니다"
       : tab === "browse"
-      ? `${filteredItems.length}건 표시 · 전체 ${items.length}건`
+      ? `${filteredItems.length}건 표시 · 전체 ${knowledgeTotal}건`
       : !unlocked
       ? "비밀번호 입력"
       : editView === "ingest"
@@ -909,10 +913,20 @@ function App() {
             <BrowsePanel
               items={filteredItems}
               query={browseQuery}
-              onQueryChange={setBrowseQuery}
+              onQueryChange={(value) => {
+                setBrowseQuery(value);
+                setBrowsePage(1);
+              }}
               categories={categories}
               categoryId={browseCategoryId}
-              onCategoryChange={setBrowseCategoryId}
+              onCategoryChange={(value) => {
+                setBrowseCategoryId(value);
+                setBrowsePage(1);
+              }}
+              page={browsePage}
+              total={knowledgeTotal}
+              pageSize={KNOWLEDGE_PAGE_SIZE}
+              onPageChange={setBrowsePage}
               onOpen={openBrowseModal}
             />
           )}
@@ -1322,6 +1336,10 @@ function BrowsePanel({
   categories,
   categoryId,
   onCategoryChange,
+  page,
+  total,
+  pageSize,
+  onPageChange,
   onOpen
 }: {
   items: KnowledgeItem[];
@@ -1330,8 +1348,16 @@ function BrowsePanel({
   categories: Category[];
   categoryId: string;
   onCategoryChange: (value: string) => void;
+  page: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (value: number) => void;
   onOpen: (index: number) => void;
 }) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+
   return (
     <>
       <div className="browse-toolbar">
@@ -1417,6 +1443,32 @@ function BrowsePanel({
                 <div className="right source">{getSourceLabel(it.source_type)}</div>
               </button>
             ))}
+          </div>
+          <div className="browse-pagination">
+            <span>
+              {from}-{to} / {total}
+            </span>
+            <div className="browse-pagination-buttons">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onPageChange(Math.max(1, page - 1))}
+                disabled={page <= 1}
+              >
+                이전
+              </button>
+              <span className="browse-page-indicator">
+                {page} / {pageCount}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+                disabled={page >= pageCount}
+              >
+                다음
+              </button>
+            </div>
           </div>
         </div>
       )}
