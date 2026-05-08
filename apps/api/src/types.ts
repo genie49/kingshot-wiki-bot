@@ -1,5 +1,7 @@
 export type KnowledgeStatus = "draft" | "published" | "needs_review";
 
+export type KnowledgeSourceType = "ai" | "swalove";
+
 export type Category = {
   id: string;
   slug: string;

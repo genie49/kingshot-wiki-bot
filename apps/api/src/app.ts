@@ -61,6 +61,7 @@ app.patch("/knowledge/:id", async (c) => {
     body?: string;
     categoryId?: string | null;
     tags?: string[];
+    sourceType?: "ai" | "swalove";
     sourceNote?: string | null;
     status?: "draft" | "published" | "needs_review";
   }>();
@@ -78,6 +79,7 @@ app.post("/ingest", async (c) => {
   if (contentType.includes("multipart/form-data")) {
     const form = await c.req.formData();
     const body = String(form.get("body") ?? "");
+    const sourceType = form.get("sourceType");
     const sourceNote = form.get("sourceNote");
     const files = form
       .getAll("images")
@@ -85,6 +87,7 @@ app.post("/ingest", async (c) => {
     const uploadedAssets = await Promise.all(files.map((file) => uploadImageToGcs(file)));
     const result = await ingestKnowledge({
       body,
+      sourceType: sourceType === "swalove" ? "swalove" : "ai",
       sourceNote: typeof sourceNote === "string" ? sourceNote : undefined,
       assets: uploadedAssets.map((asset) => ({
         url: asset.url,

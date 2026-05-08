@@ -887,7 +887,7 @@ button:disabled {
 
 .browse-row {
   display: grid;
-  grid-template-columns: 1fr 160px 200px 80px;
+  grid-template-columns: 1fr 160px 200px 90px;
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
@@ -907,7 +907,7 @@ button:disabled {
 
 .browse-row.head {
   display: grid;
-  grid-template-columns: 1fr 160px 200px 80px;
+  grid-template-columns: 1fr 160px 200px 90px;
   padding: 10px 14px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
@@ -958,6 +958,12 @@ button:disabled {
 
 .browse-row .cat {
   font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.browse-row .source {
+  font-family: var(--mono);
+  font-size: 11px;
   color: var(--ink-soft);
 }
 
@@ -2209,7 +2215,8 @@ button:disabled {
     grid-template-columns: none;
   }
 
-  .browse-row .cat {
+  .browse-row .cat,
+  .browse-row .source {
     order: -1;
     font-family: var(--mono);
     font-size: 10px;
