@@ -71,7 +71,16 @@ function readUnlockState(): boolean {
   }
 }
 
-type Source = { id: string; title: string; summary: string; similarity: number };
+type Source = {
+  sourceId: string;
+  kind: "rag" | "reddit";
+  title: string;
+  summary: string;
+  url?: string;
+  similarity?: number;
+  knowledgeItemId?: string;
+  images?: { id: string; url: string; mimeType: string }[];
+};
 
 type ImageRef = { id: string; url: string; mimeType: string; knowledgeItemId: string };
 
@@ -82,7 +91,9 @@ type ChatResponse = {
 };
 
 type StreamEvent =
-  | { type: "metadata"; sources: Source[]; images: ImageRef[] }
+  | { type: "tool_start"; tool: string; label: string }
+  | { type: "tool_end"; tool: string }
+  | { type: "metadata"; sources: Source[]; images?: ImageRef[] }
   | { type: "text"; delta: string }
   | { type: "done" }
   | { type: "error"; error: string };
@@ -93,6 +104,7 @@ type ChatMessage = {
   content: string;
   sources?: Source[];
   images?: ImageRef[];
+  activeTools?: { tool: string; label: string; done: boolean }[];
   streaming?: boolean;
   errored?: boolean;
 };
@@ -466,6 +478,7 @@ function App() {
       content: "",
       sources: [],
       images: [],
+      activeTools: [],
       streaming: true
     };
     const nextMessages = [...messages, userMessage, assistantMessage];
@@ -495,10 +508,61 @@ function App() {
         const parsed = parseSseEvents(buffer);
         buffer = parsed.rest;
         for (const event of parsed.events) {
+          if (event.type === "tool_start") {
+            setMessages((current) =>
+              current.map((m) => {
+                if (m.id !== assistantMessage.id) return m;
+                const activeTools = [...(m.activeTools || [])];
+                const existing = activeTools.find((t) => t.tool === event.tool);
+                if (existing) {
+                  existing.done = false;
+                } else {
+                  activeTools.push({ tool: event.tool, label: event.label, done: false });
+                }
+                return { ...m, activeTools };
+              })
+            );
+          }
+          if (event.type === "tool_end") {
+            setMessages((current) =>
+              current.map((m) => {
+                if (m.id !== assistantMessage.id) return m;
+                const activeTools = [...(m.activeTools || [])];
+                const existing = activeTools.find((t) => t.tool === event.tool);
+                if (existing) {
+                  existing.done = true;
+                }
+                return { ...m, activeTools };
+              })
+            );
+            setTimeout(() => {
+              setMessages((current) =>
+                current.map((m) => {
+                  if (m.id !== assistantMessage.id) return m;
+                  const activeTools = (m.activeTools || []).filter((t) => t.tool !== event.tool);
+                  return { ...m, activeTools };
+                })
+              );
+            }, 800);
+          }
           if (event.type === "metadata") {
+            // Collect images from cited sources
+            const sourceImages: ImageRef[] = [];
+            for (const src of event.sources) {
+              if (src.images && src.images.length > 0) {
+                for (const img of src.images) {
+                  sourceImages.push({
+                    id: img.id,
+                    url: img.url,
+                    mimeType: img.mimeType,
+                    knowledgeItemId: src.knowledgeItemId ?? ""
+                  });
+                }
+              }
+            }
             appendToAssistant(assistantMessage.id, {
               sources: event.sources,
-              images: event.images
+              images: sourceImages
             });
           }
           if (event.type === "text") appendDelta(assistantMessage.id, event.delta);
@@ -517,7 +581,7 @@ function App() {
   }
 
   function onComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submitQuestion();
     }
@@ -1055,7 +1119,7 @@ function App() {
         <CitationModal
           source={citationModal.source}
           index={citationModal.index}
-          item={items.find((it) => it.id === citationModal.source.id) ?? null}
+          item={items.find((it) => it.id === citationModal.source.knowledgeItemId) ?? null}
           onClose={() => setCitationModal(null)}
           onOpenItem={(item) => {
             setCitationModal(null);
@@ -1266,6 +1330,24 @@ function ChatPanel({
                     )}
                     {m.streaming && <span className="stream-cursor" />}
                   </div>
+                  {m.sources && m.sources.length > 0 && (
+                    <div className="assistant-sources">
+                      {m.sources.map((source, index) => (
+                        <button
+                          key={source.sourceId}
+                          type="button"
+                          className="source-chip"
+                          onClick={() => onSourceOpen(source, index)}
+                        >
+                          <span className="source-chip-num">{index + 1}</span>
+                          <span className="source-chip-title">{source.title}</span>
+                          <span className="source-chip-score">
+                            {source.kind === "reddit" ? "Reddit" : `${Math.round((source.similarity || 0) * 100)}%`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {m.images && m.images.length > 0 && (
                     <div className="assistant-images">
                       {m.images.map((image) => (
@@ -1280,24 +1362,15 @@ function ChatPanel({
                       ))}
                     </div>
                   )}
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="assistant-sources">
-                      {m.sources.map((source, index) => (
-                        <button
-                          key={source.id}
-                          type="button"
-                          className="source-chip"
-                          onClick={() => onSourceOpen(source, index)}
-                        >
-                          <span className="source-chip-num">{index + 1}</span>
-                          <span className="source-chip-title">{source.title}</span>
-                          <span className="source-chip-score">
-                            {Math.round(source.similarity * 100)}%
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {m.activeTools && m.activeTools.length > 0 && (() => {
+                    const latestTool = m.activeTools[m.activeTools.length - 1];
+                    return (
+                      <div className={`tool-status ${latestTool.done ? "done" : ""}`}>
+                        {latestTool.done ? <ListChecks size={12} /> : <RefreshCw size={12} className="spin" />}
+                        <span>{latestTool.label}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )
@@ -2003,12 +2076,16 @@ function CitationModal({
           <span className="citation-num">{index + 1}</span>
           {categoryName ? (
             <span className="pill pill-accent">{categoryName}</span>
+          ) : source.kind === "reddit" ? (
+            <span className="pill pill-reddit">Reddit</span>
           ) : (
             <span className="pill">인용</span>
           )}
-          <span className="citation-score">
-            유사도 {Math.round(source.similarity * 100)}%
-          </span>
+          {source.kind !== "reddit" && source.similarity !== undefined && (
+            <span className="citation-score">
+              유사도 {Math.round(source.similarity * 100)}%
+            </span>
+          )}
         </div>
         <div className="citation-title">{source.title}</div>
         <p className="citation-summary">{source.summary}</p>
@@ -2033,6 +2110,17 @@ function CitationModal({
             >
               전체 보기
             </button>
+          )}
+          {source.kind === "reddit" && source.url && (
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-primary btn-sm"
+              style={{ textDecoration: "none" }}
+            >
+              원문 보기
+            </a>
           )}
         </div>
       </div>

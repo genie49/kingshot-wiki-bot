@@ -1,4 +1,4 @@
-import { GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { config, requireConfig } from "../config.js";
 
 export function createChatModel() {

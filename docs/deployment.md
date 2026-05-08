@@ -40,10 +40,14 @@ API environment variables:
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_APPLICATION_CREDENTIALS_JSON`
 - `GCS_PUBLIC_BASE_URL`
-- `GEMINI_API_KEY`
-- `GEMINI_GENERATION_MODEL`
+- `GEMINI_API_KEY` (used only for embeddings)
 - `GEMINI_EMBEDDING_MODEL`
 - `GEMINI_EMBEDDING_DIMENSIONS`
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_BASE_URL` (defaults to `https://openrouter.ai/api/v1`)
+- `OPENROUTER_GENERATION_MODEL` (e.g. `deepseek/deepseek-v4-pro`)
+- `OPENROUTER_HTTP_REFERER` (sent as the OpenRouter `HTTP-Referer` header)
+- `OPENROUTER_APP_TITLE` (sent as the OpenRouter `X-Title` header)
 - `RAG_MIN_SIMILARITY`: recommended `0.55` for the current Kingshot corpus
 
 ### Web project
