@@ -27,7 +27,6 @@ type TrackedSource = {
 type QueryRunContext = {
   matches: SemanticMatch[];
   trackedSources: TrackedSource[];
-  citedSourceIds: string[];
   redditSources: { title: string; url: string; snippet: string; score: number }[];
 };
 
@@ -210,27 +209,9 @@ function createQueryAgent(context: QueryRunContext) {
     }
   );
 
-  const citeSources = tool(
-    async ({ sourceIds }) => {
-      context.citedSourceIds = sourceIds;
-      return "Sources cited successfully.";
-    },
-    {
-      name: "cite_sources",
-      description:
-        "MUST call this tool at the very end of every response. " +
-        "Pass the sourceId values of all sources you actually referenced in your answer. " +
-        "Only the sources you cite here will be shown to the user as references. " +
-        "If you used no sources, pass an empty array.",
-      schema: z.object({
-        sourceIds: z.array(z.string()).describe("Array of sourceId values you referenced in your answer. Empty if none.")
-      })
-    }
-  );
-
   return createAgent({
     model: createChatModel(),
-    tools: [glossaryTranslate, semanticSearch, listCategories, redditSearch, citeSources],
+    tools: [glossaryTranslate, semanticSearch, listCategories, redditSearch],
     systemPrompt:
       "You are an agentic RAG assistant for Korean Kingshot(킹샷) game knowledge. " +
       "The knowledge base mixes Korean and English chunks, and the embedding model often fails to bridge the two. " +
@@ -244,7 +225,6 @@ function createQueryAgent(context: QueryRunContext) {
       "Try up to three focused query variants when needed. " +
       "When the knowledge base does not have enough information, or the user explicitly asks about community discussions, opinions, or Reddit content, use reddit_search to find relevant Reddit posts. " +
       "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient or no relevant results are found after all attempts, respond exactly: '검색 결과에서 해당 정보를 찾을 수 없습니다.' and briefly suggest the user try different keywords. " +
-      "CRITICAL: After finishing your answer, you MUST call cite_sources with the sourceId values of every source you actually used. Only cited sources will be visible to the user. If you used no sources, call cite_sources with an empty array. Never skip this step. " +
       "Never rename Kingshot to another game title. Return concise Korean answers. Do not paste image URLs."
   });
 }
@@ -275,7 +255,7 @@ export async function* streamAnswerQuestion(
   messages: QueryMessage[] = [],
   signal?: AbortSignal
 ): AsyncGenerator<QueryStreamEvent> {
-  const context: QueryRunContext = { matches: [], trackedSources: [], citedSourceIds: [], redditSources: [] };
+  const context: QueryRunContext = { matches: [], trackedSources: [], redditSources: [] };
   const agent = createQueryAgent(context);
   const run = await agent.streamEvents(
     {
@@ -287,10 +267,12 @@ export async function* streamAnswerQuestion(
     }
   );
 
+  let completeAnswer = "";
   for await (const rawEvent of run) {
     const event = rawEvent as any;
     if (event.event === "on_tool_start") {
       const toolName = event.name;
+      console.log(`[Tool Start] ${toolName}`, JSON.stringify(event.data?.input));
       const label = TOOL_LABELS[toolName];
       if (label) {
         yield { type: "tool_start", tool: toolName, label };
@@ -298,6 +280,7 @@ export async function* streamAnswerQuestion(
     }
     if (event.event === "on_tool_end") {
       const toolName = event.name;
+      console.log(`[Tool End] ${toolName}`, JSON.stringify(event.data?.output)?.substring(0, 200) + '...');
       const label = TOOL_LABELS[toolName];
       if (label) {
         yield { type: "tool_end", tool: toolName };
@@ -306,12 +289,15 @@ export async function* streamAnswerQuestion(
     if (event.event === "on_chat_model_stream") {
       const chunk = event.data?.chunk;
       if (chunk?.content && typeof chunk.content === "string") {
+        completeAnswer += chunk.content;
         yield { type: "text", delta: chunk.content };
       } else if (Array.isArray(chunk?.content)) {
         for (const block of chunk.content) {
           if (typeof block === "string" && block) {
+            completeAnswer += block;
             yield { type: "text", delta: block };
           } else if (block && typeof block === "object" && "text" in block && block.text) {
+            completeAnswer += block.text;
             yield { type: "text", delta: block.text };
           }
         }
@@ -319,7 +305,42 @@ export async function* streamAnswerQuestion(
     }
   }
 
-  const citedSet = new Set(context.citedSourceIds);
+  let citedSourceIds: string[] = [];
+  if (context.trackedSources.length > 0 && completeAnswer.trim().length > 0) {
+    console.log(`[Citation Extraction] Starting extraction for ${context.trackedSources.length} sources...`);
+    const citationModel = createChatModel().withStructuredOutput(
+      z.object({
+        citedSourceIds: z.array(z.string()).describe("Array of sourceIds that were actually used or referenced in the assistant's answer.")
+      }),
+      { name: "extract_citations" }
+    );
+    
+    const sourcesText = context.trackedSources
+      .map((s) => `[${s.sourceId}] ${s.title}\n${s.summary}`)
+      .join("\n\n");
+      
+    const extractionPrompt = `You are a citation extraction assistant.
+Look at the following assistant's answer and the list of available sources.
+Determine which sources were actually used or referenced to write the answer.
+Return a JSON object containing the array of cited sourceIds. If none were used, return an empty array.
+
+Available Sources:
+${sourcesText}
+
+Assistant's Answer:
+${completeAnswer}`;
+
+    try {
+      const result = await citationModel.invoke(extractionPrompt);
+      citedSourceIds = result.citedSourceIds || [];
+      console.log(`[Citation Extraction] Extracted IDs:`, citedSourceIds);
+    } catch (err) {
+      console.error(`[Citation Extraction] Failed:`, err);
+      citedSourceIds = context.trackedSources.map((s) => s.sourceId);
+    }
+  }
+
+  const citedSet = new Set(citedSourceIds);
   const citedSources = context.trackedSources.filter((s) => citedSet.has(s.sourceId));
   yield { type: "metadata", sources: citedSources };
   yield { type: "done" };
