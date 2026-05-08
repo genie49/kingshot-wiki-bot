@@ -349,15 +349,25 @@ export async function* streamAnswerQuestion(
       .map((s) => `[${s.sourceId}] ${s.title}\n${s.summary}`)
       .join("\n\n");
       
+    const historyText = messages
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+      .join("\n");
+      
     const extractionPrompt = `You are a citation extraction assistant.
-Look at the following assistant's answer and the list of available sources.
-Determine which sources were actually used or referenced to write the answer.
+Look at the following assistant's answer, the conversation history, and the list of available sources.
+Determine which sources were actually used or referenced to write the final answer.
 Return a JSON object containing the array of cited sourceIds. If none were used, return an empty array.
+
+Conversation History:
+${historyText || "No previous history."}
+
+Current Question:
+User: ${question}
 
 Available Sources:
 ${sourcesText}
 
-Assistant's Answer:
+Assistant's Final Answer:
 ${completeAnswer}`;
 
     try {
@@ -371,7 +381,19 @@ ${completeAnswer}`;
   }
 
   const citedSet = new Set(citedSourceIds);
-  const citedSources = context.trackedSources.filter((s) => citedSet.has(s.sourceId));
+  const citedSourcesRaw = context.trackedSources.filter((s) => citedSet.has(s.sourceId));
+  
+  // Deduplicate sources
+  const citedSources: SourceInfo[] = [];
+  const seenIds = new Set<string>();
+  for (const s of citedSourcesRaw) {
+    const dedupKey = s.kind === "rag" ? s.knowledgeItemId : s.url;
+    if (dedupKey) {
+      if (seenIds.has(dedupKey)) continue;
+      seenIds.add(dedupKey);
+    }
+    citedSources.push(s);
+  }
 
   // Fetch images for cited RAG sources
   const ragItemIds = citedSources
