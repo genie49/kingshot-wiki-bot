@@ -6,68 +6,16 @@ import { createChatModel, createEmbeddingModel, normalizeEmbeddingDimensions } f
 import { createSupabaseServiceClient } from "../lib/supabase.js";
 import { KnowledgeRepository } from "../repositories/knowledge.js";
 
-const semanticSearch = tool(
-  async ({ query, matchCount }) => {
-    const repository = new KnowledgeRepository(createSupabaseServiceClient());
-    const embeddings = createEmbeddingModel();
-    const queryEmbedding = normalizeEmbeddingDimensions(await embeddings.embedQuery(query));
-    const matches = (await repository.semanticSearch(queryEmbedding, matchCount)).filter(
-      (match) => match.similarity >= config.RAG_MIN_SIMILARITY
-    );
-    return JSON.stringify(matches);
-  },
-  {
-    name: "semantic_search",
-    description: "Search Kingshot knowledge chunks by semantic similarity.",
-    schema: z.object({
-      query: z.string(),
-      matchCount: z.number().int().min(1).max(12).default(6)
-    })
-  }
-);
+export type QueryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
-const getRelatedImages = tool(
-  async ({ knowledgeItemIds }) => {
-    const repository = new KnowledgeRepository(createSupabaseServiceClient());
-    const assets = await repository.getAssetsForItems(knowledgeItemIds);
-    return JSON.stringify(assets);
-  },
-  {
-    name: "get_related_images",
-    description: "Fetch image assets related to one or more knowledge item IDs.",
-    schema: z.object({
-      knowledgeItemIds: z.array(z.string()).max(12)
-    })
-  }
-);
+type SemanticMatch = Awaited<ReturnType<KnowledgeRepository["semanticSearch"]>>[number];
 
-const listCategories = tool(
-  async () => {
-    const repository = new KnowledgeRepository(createSupabaseServiceClient());
-    return JSON.stringify(await repository.listCategories());
-  },
-  {
-    name: "list_categories",
-    description: "List the fixed Kingshot wiki category taxonomy.",
-    schema: z.object({})
-  }
-);
-
-let queryAgent: ReturnType<typeof createAgent> | undefined;
-
-function getQueryAgent() {
-  queryAgent ??= createAgent({
-    model: createChatModel(),
-    tools: [semanticSearch, getRelatedImages, listCategories],
-    systemPrompt:
-      "You answer Korean Kingshot(킹샷) game questions using only retrieved knowledge. " +
-      "Never rename Kingshot to another game title. " +
-      "Search first, fetch related images when useful, and be explicit when the knowledge base is missing details. " +
-      "Return concise Korean answers. Do not paste image URLs in the answer text; the API returns related images separately."
-  });
-
-  return queryAgent;
-}
+type QueryRunContext = {
+  matches: SemanticMatch[];
+};
 
 function stringifyContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -101,40 +49,91 @@ function extractAnswer(result: Awaited<ReturnType<ReturnType<typeof createAgent>
   return "";
 }
 
-function buildRagPrompt(question: string, matches: Awaited<ReturnType<KnowledgeRepository["semanticSearch"]>>) {
-  const context = matches.length
-    ? matches
-        .map(
-          (match, index) =>
-            `[${index + 1}] ${match.title}\n요약: ${match.summary}\n본문: ${match.chunk_text}\n유사도: ${match.similarity.toFixed(3)}`
-        )
-        .join("\n\n")
-    : "검색 기준을 넘는 지식이 없습니다.";
+function normalizeHistory(question: string, messages: QueryMessage[] = []) {
+  const cleaned = messages
+    .map((message) => ({
+      role: message.role,
+      content: message.content.trim()
+    }))
+    .filter((message) => message.content.length > 0);
+  const lastMessage = cleaned.at(-1);
 
-  return [
-    {
-      role: "system" as const,
-      content:
-        "You answer Korean Kingshot(킹샷) game questions using only the provided retrieved knowledge. " +
-        "Never rename Kingshot to another game title. " +
-        "If the retrieved knowledge is missing details, say that clearly. " +
-        "Return concise Korean answers. Do not paste image URLs."
-    },
-    {
-      role: "user" as const,
-      content: `질문:\n${question}\n\n검색된 지식:\n${context}`
-    }
-  ];
+  if (lastMessage?.role === "user" && lastMessage.content === question.trim()) {
+    return cleaned.slice(0, -1);
+  }
+
+  return cleaned;
 }
 
-export async function answerQuestion(question: string) {
-  const repository = new KnowledgeRepository(createSupabaseServiceClient());
-  const embeddings = createEmbeddingModel();
-  const queryEmbedding = normalizeEmbeddingDimensions(await embeddings.embedQuery(question));
-  const matches = (await repository.semanticSearch(queryEmbedding, 6)).filter(
-    (match) => match.similarity >= config.RAG_MIN_SIMILARITY
+function createQueryAgent(context: QueryRunContext) {
+  const semanticSearch = tool(
+    async ({ query, matchCount }) => {
+      const repository = new KnowledgeRepository(createSupabaseServiceClient());
+      const embeddings = createEmbeddingModel();
+      const queryEmbedding = normalizeEmbeddingDimensions(await embeddings.embedQuery(query));
+      const matches = (await repository.semanticSearch(queryEmbedding, matchCount)).filter(
+        (match) => match.similarity >= config.RAG_MIN_SIMILARITY
+      );
+      context.matches.push(...matches);
+      return JSON.stringify(
+        matches.map((match) => ({
+          chunk_id: match.chunk_id,
+          knowledge_item_id: match.knowledge_item_id,
+          title: match.title,
+          summary: match.summary,
+          chunk_text: match.chunk_text,
+          similarity: match.similarity
+        }))
+      );
+    },
+    {
+      name: "semantic_search",
+      description:
+        "Search Kingshot wiki knowledge chunks by semantic similarity. " +
+        "Input should be a focused search query, not necessarily the user's exact wording. " +
+        "Returns JSON results with similarity scores, summaries, and chunk text. " +
+        "If results are empty, too weak, or do not answer the user's intent, rewrite the query and call this tool again.",
+      schema: z.object({
+        query: z.string().describe("Focused search query for the Kingshot knowledge base."),
+        matchCount: z.number().int().min(1).max(12).default(6)
+      })
+    }
   );
-  const sourceMap = new Map<string, (typeof matches)[number]>();
+
+  const listCategories = tool(
+    async () => {
+      const repository = new KnowledgeRepository(createSupabaseServiceClient());
+      return JSON.stringify(await repository.listCategories());
+    },
+    {
+      name: "list_categories",
+      description: "List the fixed Kingshot wiki category taxonomy to help formulate better semantic_search queries.",
+      schema: z.object({})
+    }
+  );
+
+  return createAgent({
+    model: createChatModel(),
+    tools: [semanticSearch, listCategories],
+    systemPrompt:
+      "You are an agentic RAG assistant for Korean Kingshot(킹샷) game knowledge. " +
+      "Use semantic_search only when the user asks for new Kingshot game knowledge, facts, strategy, data, or verification that is not already present in the conversation. " +
+      "Do not search for greetings, small talk, app/help/meta questions, or requests to summarize, reorganize, shorten, translate, rephrase, or format information that is already present in the chat history. " +
+      "When the needed answer is already in prior conversation messages, answer from that chat history without calling tools. " +
+      "When you do search, inspect returned similarity scores, summaries, and chunk text. " +
+      "If search results are empty, low-confidence, or not well aligned with the user's intent, rewrite the query and call semantic_search again. " +
+      "Try up to three focused query variants when needed, including Korean synonyms, English game terms, category names, and narrower concepts. " +
+      "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient, say what is missing clearly. " +
+      "Never rename Kingshot to another game title. Return concise Korean answers. Do not paste image URLs."
+  });
+}
+
+function buildAgentMessages(question: string, messages: QueryMessage[] = []) {
+  return [...normalizeHistory(question, messages), { role: "user" as const, content: question }];
+}
+
+async function buildMetadata(matches: SemanticMatch[]) {
+  const sourceMap = new Map<string, SemanticMatch>();
 
   for (const match of matches) {
     const existing = sourceMap.get(match.knowledge_item_id);
@@ -149,13 +148,10 @@ export async function answerQuestion(question: string) {
     summary: match.summary,
     similarity: match.similarity
   }));
+  const repository = new KnowledgeRepository(createSupabaseServiceClient());
   const assets = await repository.getAssetsForItems(sources.map((source) => source.id));
-  const result = await getQueryAgent().invoke({
-    messages: [{ role: "user", content: question }]
-  });
 
   return {
-    answer: extractAnswer(result),
     sources,
     images: assets.map((asset) => ({
       id: asset.id,
@@ -163,6 +159,19 @@ export async function answerQuestion(question: string) {
       mimeType: asset.mime_type,
       knowledgeItemId: asset.knowledge_item_id
     }))
+  };
+}
+
+export async function answerQuestion(question: string, messages: QueryMessage[] = []) {
+  const context: QueryRunContext = { matches: [] };
+  const result = await createQueryAgent(context).invoke({
+    messages: buildAgentMessages(question, messages)
+  });
+  const metadata = await buildMetadata(context.matches);
+
+  return {
+    answer: extractAnswer(result),
+    ...metadata
   };
 }
 
@@ -175,45 +184,32 @@ export type QueryStreamEvent =
   | { type: "text"; delta: string }
   | { type: "done" };
 
-export async function* streamAnswerQuestion(question: string, signal?: AbortSignal): AsyncGenerator<QueryStreamEvent> {
-  const repository = new KnowledgeRepository(createSupabaseServiceClient());
-  const embeddings = createEmbeddingModel();
-  const queryEmbedding = normalizeEmbeddingDimensions(await embeddings.embedQuery(question));
-  const matches = (await repository.semanticSearch(queryEmbedding, 6)).filter(
-    (match) => match.similarity >= config.RAG_MIN_SIMILARITY
+export async function* streamAnswerQuestion(
+  question: string,
+  messages: QueryMessage[] = [],
+  signal?: AbortSignal
+): AsyncGenerator<QueryStreamEvent> {
+  const context: QueryRunContext = { matches: [] };
+  const run = await createQueryAgent(context).streamEvents(
+    {
+      messages: buildAgentMessages(question, messages)
+    },
+    {
+      version: "v3",
+      signal
+    }
   );
-  const sourceMap = new Map<string, (typeof matches)[number]>();
 
-  for (const match of matches) {
-    const existing = sourceMap.get(match.knowledge_item_id);
-    if (!existing || match.similarity > existing.similarity) {
-      sourceMap.set(match.knowledge_item_id, match);
+  for await (const message of run.messages) {
+    if (message.node !== "model_request") continue;
+    for await (const token of message.text) {
+      if (token) {
+        yield { type: "text", delta: token };
+      }
     }
   }
 
-  const sources = Array.from(sourceMap.values()).map((match) => ({
-    id: match.knowledge_item_id,
-    title: match.title,
-    summary: match.summary,
-    similarity: match.similarity
-  }));
-  const assets = await repository.getAssetsForItems(sources.map((source) => source.id));
-  const images = assets.map((asset) => ({
-    id: asset.id,
-    url: asset.gcs_url,
-    mimeType: asset.mime_type,
-    knowledgeItemId: asset.knowledge_item_id
-  }));
-
-  yield { type: "metadata", sources, images };
-
-  const stream = await createChatModel().stream(buildRagPrompt(question, matches), { signal });
-  for await (const chunk of stream) {
-    const text = stringifyContent(chunk.content);
-    if (text) {
-      yield { type: "text", delta: text };
-    }
-  }
-
+  const metadata = await buildMetadata(context.matches);
+  yield { type: "metadata", ...metadata };
   yield { type: "done" };
 }
