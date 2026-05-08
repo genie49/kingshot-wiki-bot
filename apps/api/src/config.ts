@@ -14,6 +14,9 @@ const envSchema = z.object({
   GEMINI_GENERATION_MODEL: z.string().default("gemini-3.1-flash-lite-preview"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
   GEMINI_EMBEDDING_DIMENSIONS: z.coerce.number().default(1536),
+  XAI_API_KEY: z.string().optional(),
+  XAI_BASE_URL: z.string().default("https://api.x.ai/v1"),
+  XAI_GENERATION_MODEL: z.string().default("grok-4.3"),
   RAG_MIN_SIMILARITY: z.coerce.number().default(0.55)
 });
 
