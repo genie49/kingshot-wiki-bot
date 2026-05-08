@@ -54,8 +54,8 @@ create index if not exists knowledge_items_created_at_idx on public.knowledge_it
 create index if not exists knowledge_assets_item_id_idx on public.knowledge_assets(knowledge_item_id);
 create index if not exists knowledge_chunks_item_id_idx on public.knowledge_chunks(knowledge_item_id);
 create index if not exists knowledge_chunks_embedding_idx
-  on public.knowledge_chunks using ivfflat (embedding vector_cosine_ops)
-  with (lists = 100);
+  on public.knowledge_chunks using hnsw (embedding vector_cosine_ops)
+  with (m = 16, ef_construction = 64);
 
 create or replace function public.match_knowledge_chunks(
   query_embedding vector(1536),
