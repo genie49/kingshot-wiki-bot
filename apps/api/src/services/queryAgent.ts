@@ -268,40 +268,69 @@ export async function* streamAnswerQuestion(
   );
 
   let completeAnswer = "";
+  const pendingTools = new Set<string>(); // track tool names currently executing
   for await (const rawEvent of run) {
-    const event = rawEvent as any;
-    if (event.event === "on_tool_start") {
-      const toolName = event.name;
-      console.log(`[Tool Start] ${toolName}`, JSON.stringify(event.data?.input));
-      const label = TOOL_LABELS[toolName];
-      if (label) {
-        yield { type: "tool_start", tool: toolName, label };
+    const ev = rawEvent as any;
+
+    // v3 events: { type: "event", method: "messages"|"tasks"|"lifecycle"|"updates"|..., params: { data, node? } }
+    if (ev.type !== "event") continue;
+    const method = ev.method;
+    const data = ev.params?.data;
+    const node = ev.params?.node;
+
+    // ── Text streaming via "messages" method (only from model_request node) ──
+    if (method === "messages" && data && node === "model_request") {
+      if (data.event === "content-block-delta" && data.delta?.type === "text-delta" && data.delta.text) {
+        completeAnswer += data.delta.text;
+        yield { type: "text", delta: data.delta.text };
       }
     }
-    if (event.event === "on_tool_end") {
-      const toolName = event.name;
-      console.log(`[Tool End] ${toolName}`, JSON.stringify(event.data?.output)?.substring(0, 200) + '...');
-      const label = TOOL_LABELS[toolName];
-      if (label) {
-        yield { type: "tool_end", tool: toolName };
-      }
-    }
-    if (event.event === "on_chat_model_stream") {
-      const chunk = event.data?.chunk;
-      if (chunk?.content && typeof chunk.content === "string") {
-        completeAnswer += chunk.content;
-        yield { type: "text", delta: chunk.content };
-      } else if (Array.isArray(chunk?.content)) {
-        for (const block of chunk.content) {
-          if (typeof block === "string" && block) {
-            completeAnswer += block;
-            yield { type: "text", delta: block };
-          } else if (block && typeof block === "object" && "text" in block && block.text) {
-            completeAnswer += block.text;
-            yield { type: "text", delta: block.text };
+
+    // ── Tool start: detect from model_request task result (AIMessage with tool_calls) ──
+    if (method === "tasks" && data?.name === "model_request" && data.result) {
+      try {
+        const msgs = data.result?.messages;
+        if (Array.isArray(msgs)) {
+          for (const msg of msgs) {
+            const toolCalls = msg?.tool_calls;
+            if (Array.isArray(toolCalls)) {
+              for (const tc of toolCalls) {
+                const toolName = tc.name;
+                const label = TOOL_LABELS[toolName];
+                if (label && !pendingTools.has(toolName)) {
+                  pendingTools.add(toolName);
+                  console.log(`[Tool Start] ${toolName}`, JSON.stringify(tc.args).substring(0, 200));
+                  yield { type: "tool_start", tool: toolName, label };
+                }
+              }
+            }
           }
         }
-      }
+      } catch { /* ignore parse issues */ }
+    }
+
+    // ── Tool end: detect from "updates" method when node === "tools" ──
+    if (method === "updates" && node === "tools" && data?.values) {
+      try {
+        const msgs = data.values?.messages;
+        if (Array.isArray(msgs)) {
+          for (const msg of msgs) {
+            const toolName = msg?.name;
+            const label = TOOL_LABELS[toolName];
+            if (label && pendingTools.has(toolName)) {
+              pendingTools.delete(toolName);
+              const content = msg?.content;
+              console.log(`[Tool End] ${toolName}`, String(content).substring(0, 200));
+              yield { type: "tool_end", tool: toolName };
+            }
+          }
+        }
+      } catch { /* ignore parse issues */ }
+    }
+
+    // ── Lifecycle logging ──
+    if (method === "lifecycle" && data) {
+      console.log(`[Lifecycle] ${data.event} (${data.graph_name})`);
     }
   }
 
