@@ -14,8 +14,27 @@ export type QueryMessage = {
 
 type SemanticMatch = Awaited<ReturnType<KnowledgeRepository["semanticSearch"]>>[number];
 
+type TrackedSource = {
+  sourceId: string;
+  kind: "rag" | "reddit";
+  title: string;
+  summary: string;
+  url?: string;
+  similarity?: number;
+  knowledgeItemId?: string;
+};
+
 type QueryRunContext = {
   matches: SemanticMatch[];
+  trackedSources: TrackedSource[];
+  citedSourceIds: string[];
+  redditSources: { title: string; url: string; snippet: string; score: number }[];
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  semantic_search: "데이터베이스 검색",
+  glossary_translate: "한/영 사전 검색",
+  reddit_search: "Reddit 검색"
 };
 
 function stringifyContent(content: unknown): string {
@@ -67,6 +86,9 @@ function normalizeHistory(question: string, messages: QueryMessage[] = []) {
 }
 
 function createQueryAgent(context: QueryRunContext) {
+  let ragCounter = 0;
+  let redditCounter = 0;
+
   const semanticSearch = tool(
     async ({ query, matchCount }) => {
       const repository = new KnowledgeRepository(createSupabaseServiceClient());
@@ -76,23 +98,27 @@ function createQueryAgent(context: QueryRunContext) {
         (match) => match.similarity >= config.RAG_MIN_SIMILARITY
       );
       context.matches.push(...matches);
-      return JSON.stringify(
-        matches.map((match) => ({
-          chunk_id: match.chunk_id,
-          knowledge_item_id: match.knowledge_item_id,
+      const mapped = matches.map((match) => {
+        ragCounter++;
+        const sourceId = `rag-${ragCounter}`;
+        context.trackedSources.push({
+          sourceId,
+          kind: "rag",
           title: match.title,
           summary: match.summary,
-          chunk_text: match.chunk_text,
-          similarity: match.similarity
-        }))
-      );
+          similarity: match.similarity,
+          knowledgeItemId: match.knowledge_item_id
+        });
+        return { sourceId, chunk_id: match.chunk_id, knowledge_item_id: match.knowledge_item_id, title: match.title, summary: match.summary, chunk_text: match.chunk_text, similarity: match.similarity };
+      });
+      return JSON.stringify(mapped);
     },
     {
       name: "semantic_search",
       description:
         "Search Kingshot wiki knowledge chunks by semantic similarity. " +
         "Input should be a focused search query, not necessarily the user's exact wording. " +
-        "Returns JSON results with similarity scores, summaries, and chunk text. " +
+        "Returns JSON results with similarity scores, summaries, and chunk text. Each result has a sourceId. " +
         "If results are empty, too weak, or do not answer the user's intent, rewrite the query and call this tool again.",
       schema: z.object({
         query: z.string().describe("Focused search query for the Kingshot knowledge base."),
@@ -124,22 +150,25 @@ function createQueryAgent(context: QueryRunContext) {
       const body = await res.json() as { data?: { children?: { data: { title: string; author: string; score: number; selftext: string; num_comments: number; permalink: string; created_utc: number } }[] } };
       const posts = (body.data?.children ?? []).map((child) => {
         const d = child.data;
-        return {
+        redditCounter++;
+        const sourceId = `reddit-${redditCounter}`;
+        const redditUrl = `https://www.reddit.com${d.permalink}`;
+        context.trackedSources.push({
+          sourceId,
+          kind: "reddit",
           title: d.title,
-          author: d.author,
-          score: d.score,
-          comments: d.num_comments,
-          snippet: d.selftext?.slice(0, 300) ?? "",
-          url: `https://www.reddit.com${d.permalink}`,
-          created: new Date(d.created_utc * 1000).toISOString()
-        };
+          summary: d.selftext?.slice(0, 200) ?? "",
+          url: redditUrl
+        });
+        context.redditSources.push({ title: d.title, url: redditUrl, snippet: d.selftext?.slice(0, 300) ?? "", score: d.score });
+        return { sourceId, title: d.title, author: d.author, score: d.score, comments: d.num_comments, snippet: d.selftext?.slice(0, 300) ?? "", url: redditUrl, created: new Date(d.created_utc * 1000).toISOString() };
       });
       return JSON.stringify(posts);
     },
     {
       name: "reddit_search",
       description:
-        "Search Reddit posts in a subreddit. Returns post titles, scores, comment counts, text snippets, and URLs. " +
+        "Search Reddit posts in a subreddit. Returns post titles, scores, comment counts, text snippets, and URLs. Each result has a sourceId. " +
         "Use when the user asks about community opinions, discussions, guides, or tips from Reddit. " +
         "Defaults to r/Kingshot sorted by relevance.",
       schema: z.object({
@@ -181,9 +210,27 @@ function createQueryAgent(context: QueryRunContext) {
     }
   );
 
+  const citeSources = tool(
+    async ({ sourceIds }) => {
+      context.citedSourceIds = sourceIds;
+      return "Sources cited successfully.";
+    },
+    {
+      name: "cite_sources",
+      description:
+        "MUST call this tool at the very end of every response. " +
+        "Pass the sourceId values of all sources you actually referenced in your answer. " +
+        "Only the sources you cite here will be shown to the user as references. " +
+        "If you used no sources, pass an empty array.",
+      schema: z.object({
+        sourceIds: z.array(z.string()).describe("Array of sourceId values you referenced in your answer. Empty if none.")
+      })
+    }
+  );
+
   return createAgent({
     model: createChatModel(),
-    tools: [glossaryTranslate, semanticSearch, listCategories, redditSearch],
+    tools: [glossaryTranslate, semanticSearch, listCategories, redditSearch, citeSources],
     systemPrompt:
       "You are an agentic RAG assistant for Korean Kingshot(킹샷) game knowledge. " +
       "The knowledge base mixes Korean and English chunks, and the embedding model often fails to bridge the two. " +
@@ -197,6 +244,7 @@ function createQueryAgent(context: QueryRunContext) {
       "Try up to three focused query variants when needed. " +
       "When the knowledge base does not have enough information, or the user explicitly asks about community discussions, opinions, or Reddit content, use reddit_search to find relevant Reddit posts. " +
       "For new knowledge questions, answer only from retrieved knowledge. If retrieval remains insufficient or no relevant results are found after all attempts, respond exactly: '검색 결과에서 해당 정보를 찾을 수 없습니다.' and briefly suggest the user try different keywords. " +
+      "CRITICAL: After finishing your answer, you MUST call cite_sources with the sourceId values of every source you actually used. Only cited sources will be visible to the user. If you used no sources, call cite_sources with an empty array. Never skip this step. " +
       "Never rename Kingshot to another game title. Return concise Korean answers. Do not paste image URLs."
   });
 }
@@ -205,56 +253,21 @@ function buildAgentMessages(question: string, messages: QueryMessage[] = []) {
   return [...normalizeHistory(question, messages), { role: "user" as const, content: question }];
 }
 
-async function buildMetadata(matches: SemanticMatch[]) {
-  const sourceMap = new Map<string, SemanticMatch>();
-
-  for (const match of matches) {
-    const existing = sourceMap.get(match.knowledge_item_id);
-    if (!existing || match.similarity > existing.similarity) {
-      sourceMap.set(match.knowledge_item_id, match);
-    }
-  }
-
-  const sources = Array.from(sourceMap.values()).map((match) => ({
-    id: match.knowledge_item_id,
-    title: match.title,
-    summary: match.summary,
-    similarity: match.similarity
-  }));
-  const repository = new KnowledgeRepository(createSupabaseServiceClient());
-  const assets = await repository.getAssetsForItems(sources.map((source) => source.id));
-
-  return {
-    sources,
-    images: assets.map((asset) => ({
-      id: asset.id,
-      url: asset.gcs_url,
-      mimeType: asset.mime_type,
-      knowledgeItemId: asset.knowledge_item_id
-    }))
-  };
-}
-
-export async function answerQuestion(question: string, messages: QueryMessage[] = []) {
-  const context: QueryRunContext = { matches: [] };
-  const result = await createQueryAgent(context).invoke({
-    messages: buildAgentMessages(question, messages)
-  });
-  const metadata = await buildMetadata(context.matches);
-
-  return {
-    answer: extractAnswer(result),
-    ...metadata
-  };
-}
+export type SourceInfo = {
+  sourceId: string;
+  kind: "rag" | "reddit";
+  title: string;
+  summary: string;
+  url?: string;
+  similarity?: number;
+  knowledgeItemId?: string;
+};
 
 export type QueryStreamEvent =
-  | {
-      type: "metadata";
-      sources: Awaited<ReturnType<typeof answerQuestion>>["sources"];
-      images: Awaited<ReturnType<typeof answerQuestion>>["images"];
-    }
+  | { type: "tool_start"; tool: string; label: string }
+  | { type: "tool_end"; tool: string }
   | { type: "text"; delta: string }
+  | { type: "metadata"; sources: SourceInfo[] }
   | { type: "done" };
 
 export async function* streamAnswerQuestion(
@@ -262,8 +275,9 @@ export async function* streamAnswerQuestion(
   messages: QueryMessage[] = [],
   signal?: AbortSignal
 ): AsyncGenerator<QueryStreamEvent> {
-  const context: QueryRunContext = { matches: [] };
-  const run = await createQueryAgent(context).streamEvents(
+  const context: QueryRunContext = { matches: [], trackedSources: [], citedSourceIds: [], redditSources: [] };
+  const agent = createQueryAgent(context);
+  const run = await agent.streamEvents(
     {
       messages: buildAgentMessages(question, messages)
     },
@@ -273,16 +287,56 @@ export async function* streamAnswerQuestion(
     }
   );
 
-  for await (const message of run.messages) {
-    if (message.node !== "model_request") continue;
-    for await (const token of message.text) {
-      if (token) {
-        yield { type: "text", delta: token };
+  for await (const rawEvent of run) {
+    const event = rawEvent as any;
+    if (event.event === "on_tool_start") {
+      const toolName = event.name;
+      const label = TOOL_LABELS[toolName];
+      if (label) {
+        yield { type: "tool_start", tool: toolName, label };
+      }
+    }
+    if (event.event === "on_tool_end") {
+      const toolName = event.name;
+      const label = TOOL_LABELS[toolName];
+      if (label) {
+        yield { type: "tool_end", tool: toolName };
+      }
+    }
+    if (event.event === "on_chat_model_stream") {
+      const chunk = event.data?.chunk;
+      if (chunk?.content && typeof chunk.content === "string") {
+        yield { type: "text", delta: chunk.content };
+      } else if (Array.isArray(chunk?.content)) {
+        for (const block of chunk.content) {
+          if (typeof block === "string" && block) {
+            yield { type: "text", delta: block };
+          } else if (block && typeof block === "object" && "text" in block && block.text) {
+            yield { type: "text", delta: block.text };
+          }
+        }
       }
     }
   }
 
-  const metadata = await buildMetadata(context.matches);
-  yield { type: "metadata", ...metadata };
+  const citedSet = new Set(context.citedSourceIds);
+  const citedSources = context.trackedSources.filter((s) => citedSet.has(s.sourceId));
+  yield { type: "metadata", sources: citedSources };
   yield { type: "done" };
+}
+
+export async function answerQuestion(question: string, messages: QueryMessage[] = []) {
+  const collected: QueryStreamEvent[] = [];
+  for await (const event of streamAnswerQuestion(question, messages)) {
+    collected.push(event);
+  }
+  const textParts = collected
+    .filter((e): e is { type: "text"; delta: string } => e.type === "text")
+    .map((e) => e.delta);
+  const metadata = collected.find((e): e is { type: "metadata"; sources: SourceInfo[] } => e.type === "metadata");
+
+  return {
+    answer: textParts.join(""),
+    sources: metadata?.sources ?? []
+  };
 }
