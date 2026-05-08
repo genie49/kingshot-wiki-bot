@@ -1330,6 +1330,24 @@ function ChatPanel({
                     )}
                     {m.streaming && <span className="stream-cursor" />}
                   </div>
+                  {m.sources && m.sources.length > 0 && (
+                    <div className="assistant-sources">
+                      {m.sources.map((source, index) => (
+                        <button
+                          key={source.sourceId}
+                          type="button"
+                          className="source-chip"
+                          onClick={() => onSourceOpen(source, index)}
+                        >
+                          <span className="source-chip-num">{index + 1}</span>
+                          <span className="source-chip-title">{source.title}</span>
+                          <span className="source-chip-score">
+                            {source.kind === "reddit" ? "Reddit" : `${Math.round((source.similarity || 0) * 100)}%`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {m.images && m.images.length > 0 && (
                     <div className="assistant-images">
                       {m.images.map((image) => (
@@ -1353,24 +1371,6 @@ function ChatPanel({
                       </div>
                     );
                   })()}
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="assistant-sources">
-                      {m.sources.map((source, index) => (
-                        <button
-                          key={source.sourceId}
-                          type="button"
-                          className="source-chip"
-                          onClick={() => onSourceOpen(source, index)}
-                        >
-                          <span className="source-chip-num">{index + 1}</span>
-                          <span className="source-chip-title">{source.title}</span>
-                          <span className="source-chip-score">
-                            {source.kind === "reddit" ? "Reddit" : `${Math.round((source.similarity || 0) * 100)}%`}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
             )
