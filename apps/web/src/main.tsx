@@ -99,6 +99,8 @@ type ChatMessage = {
 
 type Category = { id: string; slug: string; name: string };
 
+type KnowledgeSourceType = "ai" | "swalove";
+
 type KnowledgeItem = {
   id: string;
   title: string;
@@ -106,7 +108,10 @@ type KnowledgeItem = {
   body: string;
   tags: string[];
   status: string;
+  source_type: KnowledgeSourceType;
   source_note: string | null;
+  created_at: string;
+  updated_at: string;
   category: Category | null;
   assets: { id: string; gcs_url: string; mime_type: string; sort_order: number }[];
 };
@@ -127,6 +132,21 @@ const SUGGESTIONS = [
 ];
 
 const PLACEHOLDER = "킹샷에 대한 질문을 물어보세요";
+
+const SOURCE_LABELS: Record<KnowledgeSourceType, string> = {
+  ai: "AI",
+  swalove: "스왈로브"
+};
+
+function getSourceLabel(value: string | null | undefined) {
+  return SOURCE_LABELS[value as KnowledgeSourceType] ?? "AI";
+}
+
+function sortNewestFirst(items: KnowledgeItem[]) {
+  return [...items].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+}
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -239,6 +259,7 @@ function App() {
 
   // Ingest state
   const [ingestBody, setIngestBody] = useState("");
+  const [ingestSourceType, setIngestSourceType] = useState<KnowledgeSourceType>("ai");
   const [ingestImages, setIngestImages] = useState<File[]>([]);
   const [ingestDragging, setIngestDragging] = useState(false);
   const [ingestBusy, setIngestBusy] = useState(false);
@@ -266,7 +287,7 @@ function App() {
 
   const filteredItems = useMemo(() => {
     const q = browseQuery.trim().toLowerCase();
-    return items.filter((it) => {
+    return sortNewestFirst(items.filter((it) => {
       if (browseCategoryId && it.category?.id !== browseCategoryId) return false;
       if (!q) return true;
       return (
@@ -274,13 +295,13 @@ function App() {
         it.summary.toLowerCase().includes(q) ||
         it.tags.some((tag) => tag.toLowerCase().includes(q))
       );
-    });
+    }));
   }, [items, browseQuery, browseCategoryId]);
 
   const editFilteredItems = useMemo(() => {
     const q = editListQuery.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((it) => it.title.toLowerCase().includes(q));
+    const filtered = q ? items.filter((it) => it.title.toLowerCase().includes(q)) : items;
+    return sortNewestFirst(filtered);
   }, [items, editListQuery]);
 
   const ingestPreviews = useMemo(() => {
@@ -374,7 +395,7 @@ function App() {
   async function loadKnowledge() {
     try {
       const data = await requestJson<{ items: KnowledgeItem[] }>(`${apiBaseUrl}/knowledge`);
-      setItems(data.items);
+      setItems(sortNewestFirst(data.items));
     } catch (event) {
       console.warn("loadKnowledge", event);
     }
@@ -662,14 +683,15 @@ function App() {
     try {
       const form = new FormData();
       form.set("body", ingestBody);
+      form.set("sourceType", ingestSourceType);
       for (const image of ingestImages) form.append("images", image);
-      const data = await requestJson<{ item?: KnowledgeItem }>(`${apiBaseUrl}/ingest`, {
+      const data = await requestJson<{ id?: string }>(`${apiBaseUrl}/ingest`, {
         method: "POST",
         body: form
       });
       setIngestBody("");
       setIngestImages([]);
-      setIngestSavedId(data.item?.id ?? "");
+      setIngestSavedId(data.id ?? "");
       await loadKnowledge();
     } catch (event) {
       setIngestError(
@@ -947,6 +969,8 @@ function App() {
             <IngestPanel
               body={ingestBody}
               onBodyChange={setIngestBody}
+              sourceType={ingestSourceType}
+              onSourceTypeChange={setIngestSourceType}
               images={ingestImages}
               previews={ingestPreviews}
               dragging={ingestDragging}
@@ -1363,6 +1387,7 @@ function BrowsePanel({
         <div className="browse-table">
           <div className="browse-row head">
             <span>제목</span>
+            <span>출처</span>
             <span>카테고리</span>
             <span>태그</span>
             <span className="right">첨부</span>
@@ -1379,6 +1404,7 @@ function BrowsePanel({
                   <strong>{it.title}</strong>
                   <small>{it.summary}</small>
                 </div>
+                <div className="source">{getSourceLabel(it.source_type)}</div>
                 <div className="cat">{it.category?.name ?? "미분류"}</div>
                 <div className="tags">
                   {it.tags.slice(0, 2).map((t) => (
@@ -1463,7 +1489,7 @@ function BrowseModal({
         <div className="modal-body">
           <div className="modal-title">{item.title}</div>
           <div className="modal-meta">
-            {item.assets.length} ATTACHMENTS · {item.tags.length} TAGS
+            {getSourceLabel(item.source_type)} · {item.assets.length} ATTACHMENTS · {item.tags.length} TAGS
           </div>
           <div className="chat-message-content">
             <ReactMarkdown remarkPlugins={MD_PLUGINS}>
@@ -1489,6 +1515,8 @@ function BrowseModal({
           <div className="modal-meta-grid">
             <div className="key">카테고리</div>
             <div>{item.category?.name ?? "미분류"}</div>
+            <div className="key">출처</div>
+            <div>{getSourceLabel(item.source_type)}</div>
             <div className="key">태그</div>
             <div className="tags">
               {item.tags.length === 0 ? (
@@ -1966,6 +1994,8 @@ function CitationModal({
 function IngestPanel({
   body,
   onBodyChange,
+  sourceType,
+  onSourceTypeChange,
   images,
   previews,
   dragging,
@@ -1981,6 +2011,8 @@ function IngestPanel({
 }: {
   body: string;
   onBodyChange: (value: string) => void;
+  sourceType: KnowledgeSourceType;
+  onSourceTypeChange: (value: KnowledgeSourceType) => void;
   images: File[];
   previews: string[];
   dragging: boolean;
@@ -2011,6 +2043,20 @@ function IngestPanel({
             <span className="error-banner-msg">{error}</span>
           </div>
         )}
+
+        <div className="field">
+          <div className="field-head">
+            <span className="field-label">출처</span>
+          </div>
+          <select
+            className="select"
+            value={sourceType}
+            onChange={(event) => onSourceTypeChange(event.target.value as KnowledgeSourceType)}
+          >
+            <option value="ai">AI</option>
+            <option value="swalove">스왈로브</option>
+          </select>
+        </div>
 
         <div className="field">
           <div className="field-head">

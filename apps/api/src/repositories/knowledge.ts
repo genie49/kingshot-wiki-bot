@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Category, KnowledgeAsset, KnowledgeSearchResult } from "../types.js";
+import type { Category, KnowledgeAsset, KnowledgeSearchResult, KnowledgeSourceType } from "../types.js";
 
 type CreateKnowledgeItemInput = {
   title: string;
@@ -7,6 +7,7 @@ type CreateKnowledgeItemInput = {
   body: string;
   categoryId?: string;
   tags?: string[];
+  sourceType?: KnowledgeSourceType;
   sourceNote?: string;
   status: "draft" | "published" | "needs_review";
   metadata?: Record<string, unknown>;
@@ -40,6 +41,7 @@ type UpdateKnowledgeItemInput = {
   body?: string;
   categoryId?: string | null;
   tags?: string[];
+  sourceType?: KnowledgeSourceType;
   sourceNote?: string | null;
   status?: "draft" | "published" | "needs_review";
 };
@@ -93,6 +95,7 @@ export class KnowledgeRepository {
         body: input.body,
         category_id: input.categoryId,
         tags: input.tags ?? [],
+        source_type: input.sourceType ?? "ai",
         source_note: input.sourceNote,
         status: input.status,
         metadata: input.metadata ?? {}
@@ -155,6 +158,7 @@ export class KnowledgeRepository {
         body,
         tags,
         status,
+        source_type,
         source_note,
         created_at,
         updated_at,
@@ -183,6 +187,7 @@ export class KnowledgeRepository {
         body,
         tags,
         status,
+        source_type,
         source_note,
         metadata,
         created_at,
@@ -207,6 +212,7 @@ export class KnowledgeRepository {
     if (input.body !== undefined) patch.body = input.body;
     if (input.categoryId !== undefined) patch.category_id = input.categoryId;
     if (input.tags !== undefined) patch.tags = input.tags;
+    if (input.sourceType !== undefined) patch.source_type = input.sourceType;
     if (input.sourceNote !== undefined) patch.source_note = input.sourceNote;
     if (input.status !== undefined) patch.status = input.status;
 

@@ -18,7 +18,7 @@ create table if not exists public.knowledge_items (
   body text not null,
   category_id uuid references public.categories(id) on delete set null,
   tags text[] not null default '{}',
-  source_type text not null default 'admin_upload',
+  source_type text not null default 'ai' check (source_type in ('ai', 'swalove')),
   source_note text,
   status text not null default 'draft' check (status in ('draft', 'published', 'needs_review')),
   metadata jsonb not null default '{}',
@@ -50,6 +50,7 @@ create table if not exists public.knowledge_chunks (
 create index if not exists categories_parent_id_idx on public.categories(parent_id);
 create index if not exists knowledge_items_category_id_idx on public.knowledge_items(category_id);
 create index if not exists knowledge_items_status_idx on public.knowledge_items(status);
+create index if not exists knowledge_items_created_at_idx on public.knowledge_items(created_at desc);
 create index if not exists knowledge_assets_item_id_idx on public.knowledge_assets(knowledge_item_id);
 create index if not exists knowledge_chunks_item_id_idx on public.knowledge_chunks(knowledge_item_id);
 create index if not exists knowledge_chunks_embedding_idx

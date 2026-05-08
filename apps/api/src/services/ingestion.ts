@@ -6,6 +6,7 @@ import type { Category } from "../types.js";
 
 export const ingestRequestSchema = z.object({
   body: z.string().min(1),
+  sourceType: z.enum(["ai", "swalove"]).default("ai"),
   assets: z
     .array(
       z.object({
@@ -110,6 +111,7 @@ export async function ingestKnowledge(input: IngestRequest) {
     body: input.body,
     categoryId: selectedCategory?.id,
     tags: enrichment.tags,
+    sourceType: input.sourceType,
     sourceNote: input.sourceNote,
     status: enrichment.confidence < 0.45 ? "needs_review" : "published",
     metadata: {
