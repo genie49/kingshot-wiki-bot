@@ -102,12 +102,15 @@ app.post("/ingest", async (c) => {
 });
 
 app.post("/query", async (c) => {
-  const payload = await c.req.json<{ question?: string }>();
+  const payload = await c.req.json<{
+    question?: string;
+    messages?: { role: "user" | "assistant"; content: string }[];
+  }>();
   if (!payload.question) {
     return c.json({ error: "question is required" }, 400);
   }
 
-  const result = await answerQuestion(payload.question);
+  const result = await answerQuestion(payload.question, payload.messages ?? []);
   return c.json(result);
 });
 
@@ -116,7 +119,10 @@ function encodeSse(event: string, data: unknown) {
 }
 
 app.post("/query/stream", async (c) => {
-  const payload = await c.req.json<{ question?: string }>();
+  const payload = await c.req.json<{
+    question?: string;
+    messages?: { role: "user" | "assistant"; content: string }[];
+  }>();
   if (!payload.question) {
     return c.json({ error: "question is required" }, 400);
   }
@@ -125,7 +131,7 @@ app.post("/query/stream", async (c) => {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of streamAnswerQuestion(payload.question!, c.req.raw.signal)) {
+        for await (const event of streamAnswerQuestion(payload.question!, payload.messages ?? [], c.req.raw.signal)) {
           controller.enqueue(encoder.encode(encodeSse(event.type, event)));
         }
       } catch (error) {

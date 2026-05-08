@@ -7,7 +7,6 @@
     "start": "node dist/server.js",
     "start:local": "node --env-file=.env dist/server.js",
     "build": "tsc -p tsconfig.json",
-    "setup:checkpointer": "tsx --env-file=.env src/scripts/setupCheckpointer.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -16,7 +15,6 @@
     "@langchain/core": "^1.1.44",
     "@langchain/google-genai": "^2.1.30",
     "@langchain/langgraph": "^1.0.2",
-    "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
     "@supabase/supabase-js": "^2.86.0",
     "hono": "^4.10.7",
     "langchain": "^1.0.6",
