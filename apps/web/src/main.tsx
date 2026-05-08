@@ -79,6 +79,7 @@ type Source = {
   url?: string;
   similarity?: number;
   knowledgeItemId?: string;
+  images?: { id: string; url: string; mimeType: string }[];
 };
 
 type ImageRef = { id: string; url: string; mimeType: string; knowledgeItemId: string };
@@ -545,9 +546,23 @@ function App() {
             }, 800);
           }
           if (event.type === "metadata") {
+            // Collect images from cited sources
+            const sourceImages: ImageRef[] = [];
+            for (const src of event.sources) {
+              if (src.images && src.images.length > 0) {
+                for (const img of src.images) {
+                  sourceImages.push({
+                    id: img.id,
+                    url: img.url,
+                    mimeType: img.mimeType,
+                    knowledgeItemId: src.knowledgeItemId ?? ""
+                  });
+                }
+              }
+            }
             appendToAssistant(assistantMessage.id, {
               sources: event.sources,
-              images: event.images ?? []
+              images: sourceImages
             });
           }
           if (event.type === "text") appendDelta(assistantMessage.id, event.delta);
@@ -1305,15 +1320,6 @@ function ChatPanel({
                     )}
                     {m.errored && <span className="pill pill-danger">실패</span>}
                   </div>
-                  {m.activeTools && m.activeTools.length > 0 && (() => {
-                    const latestTool = m.activeTools[m.activeTools.length - 1];
-                    return (
-                      <div className={`tool-status ${latestTool.done ? "done" : ""}`}>
-                        {latestTool.done ? <ListChecks size={12} /> : <RefreshCw size={12} className="spin" />}
-                        <span>{latestTool.label}</span>
-                      </div>
-                    );
-                  })()}
                   <div className="chat-message-content">
                     {m.content ? (
                       <ReactMarkdown remarkPlugins={MD_PLUGINS}>{m.content}</ReactMarkdown>
@@ -1338,6 +1344,15 @@ function ChatPanel({
                       ))}
                     </div>
                   )}
+                  {m.activeTools && m.activeTools.length > 0 && (() => {
+                    const latestTool = m.activeTools[m.activeTools.length - 1];
+                    return (
+                      <div className={`tool-status ${latestTool.done ? "done" : ""}`}>
+                        {latestTool.done ? <ListChecks size={12} /> : <RefreshCw size={12} className="spin" />}
+                        <span>{latestTool.label}</span>
+                      </div>
+                    );
+                  })()}
                   {m.sources && m.sources.length > 0 && (
                     <div className="assistant-sources">
                       {m.sources.map((source, index) => (

@@ -241,6 +241,7 @@ export type SourceInfo = {
   url?: string;
   similarity?: number;
   knowledgeItemId?: string;
+  images?: { id: string; url: string; mimeType: string }[];
 };
 
 export type QueryStreamEvent =
@@ -371,6 +372,38 @@ ${completeAnswer}`;
 
   const citedSet = new Set(citedSourceIds);
   const citedSources = context.trackedSources.filter((s) => citedSet.has(s.sourceId));
+
+  // Fetch images for cited RAG sources
+  const ragItemIds = citedSources
+    .filter((s) => s.kind === "rag" && s.knowledgeItemId)
+    .map((s) => s.knowledgeItemId!);
+  if (ragItemIds.length > 0) {
+    try {
+      const uniqueIds = [...new Set(ragItemIds)];
+      const repository = new KnowledgeRepository(createSupabaseServiceClient());
+      const assets = await repository.getAssetsForItems(uniqueIds);
+      console.log(`[Images] Found ${assets.length} assets for ${uniqueIds.length} cited items`);
+      const assetsByItem = new Map<string, typeof assets>();
+      for (const asset of assets) {
+        const list = assetsByItem.get(asset.knowledge_item_id) || [];
+        list.push(asset);
+        assetsByItem.set(asset.knowledge_item_id, list);
+      }
+      for (const source of citedSources) {
+        if (source.kind === "rag" && source.knowledgeItemId) {
+          const itemAssets = assetsByItem.get(source.knowledgeItemId);
+          if (itemAssets && itemAssets.length > 0) {
+            source.images = itemAssets
+              .filter((a) => a.mime_type.startsWith("image/"))
+              .map((a) => ({ id: a.id, url: a.gcs_url, mimeType: a.mime_type }));
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[Images] Failed to fetch assets:`, err);
+    }
+  }
+
   yield { type: "metadata", sources: citedSources };
   yield { type: "done" };
 }
